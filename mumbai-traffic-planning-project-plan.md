@@ -462,7 +462,25 @@ Tasks:
     adjustment will be added in a future iteration."
 ```
 
-**Deliverable:** A comparison table/visualization showing base case vs. each scenario. The tool's first actual planning recommendation.
+**Simulation requirement (ALL cases):** The tool must **simulate every defined case**,
+not a hand-picked subset. A single scenario-runner takes a list of cases and, for each:
+runs the full UE assignment, records TSTT / V/C / bottleneck ranking, and renders a
+congestion map. The standard case set is:
+
+- **Base case** — current network, current demand (no intervention).
+- **Scenario A** — widen each identified bottleneck link (+1 lane).
+- **Scenario B** — add candidate connector link(s).
+- **Scenario C** — remove/close a link (Braess & closure test).
+- **Scenario D (incident sweep)** — stopped-vehicle bottleneck (§1.5) run for
+  **N = 1, 2, 3, …** stopped vehicles on each candidate link, so the capacity-loss
+  response curve is simulated end to end, not just a single point.
+
+Every case produces: (TSTT, ΔTSTT vs base, top-10 V/C links, congestion map). Results
+are collected into one comparison table and one side-by-side visual set so all cases are
+directly comparable. This "simulate all cases" sweep is driven by `src/scenarios/evaluate.py`.
+
+**Deliverable:** A comparison table/visualization covering **all** simulated cases (base +
+every scenario, including the full incident N-sweep). The tool's first actual planning recommendation.
 
 ### Phase 5: Visualization & Reporting (Week 7-8)
 

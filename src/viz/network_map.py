@@ -68,6 +68,43 @@ def plot_snapshot(csv_path: Path, out_path: Path) -> Path:
     return out_path
 
 
+def _vc_color(vc: float) -> str:
+    if vc is None:
+        return "#cfd2d6"
+    if vc < 0.7:
+        return "#2a9d8f"   # green
+    if vc < 0.9:
+        return "#e9c46a"   # yellow
+    if vc < 1.0:
+        return "#f4a261"   # orange
+    return "#e63946"       # red — over capacity
+
+
+def plot_vc_map(G, link_df, out_path: Path, title: str = "V/C") -> Path:
+    """Plot the network colored by post-assignment V/C ratio (loaded links only)."""
+    import matplotlib.pyplot as plt
+
+    # Map (u,v,key) -> vc for quick edge lookup.
+    vc_by_edge = {(int(r.u), int(r.v), int(r.key)): r.vc_ratio
+                  for r in link_df.itertuples(index=False)}
+    ec = []
+    for u, v, k in G.edges(keys=True):
+        vc = vc_by_edge.get((u, v, k))
+        # Only color links that actually carry flow; others faint grey.
+        ec.append(_vc_color(vc) if (vc is not None and vc > 0.01) else "#e8e8e8")
+
+    fig, ax = ox.plot_graph(
+        G, node_size=0, edge_color=ec, edge_linewidth=0.8,
+        bgcolor="white", show=False, close=False, figsize=(7, 13),
+    )
+    ax.set_title(f"{title}\n(green<0.7  yellow<0.9  orange<1.0  red≥1.0 over capacity)",
+                 color="black", fontsize=10)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=130, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Plot a TomTom congestion snapshot over the corridor.")
     parser.add_argument("--csv", default=None, help="Flow CSV (default: latest in collected/).")

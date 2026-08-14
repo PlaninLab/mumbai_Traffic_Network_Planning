@@ -1,0 +1,8 @@
+case,description,TSTT_pcu_h,dTSTT_vs_base,dTSTT_pct,max_vc,mean_vc,links_over_cap,converged,gap
+base,Current network + demand,4272.2,0.0,0.0,1.97,0.41,126,True,0.0009
+A_widen,Widen Western Express Highway (1651800604->12432945774) +1 lane,4257.1,-15.1,-0.35,1.97,0.41,125,True,0.0008
+B_addlink,Add Dahisar-Bandra bypass link,4538.2,265.9,6.22,1.92,0.39,106,True,0.0005
+C_close,Close Western Express Highway (1651800604->12432945774),5101.2,829.0,19.4,2.14,0.45,140,True,0.0009
+D_incident_N1,1 stopped vehicle(s) on Western Express Highway (1651800604->12432945774),4242.7,-29.5,-0.69,2.29,0.43,125,True,0.0005
+D_incident_N2,2 stopped vehicle(s) on Western Express Highway (1651800604->12432945774),4290.5,18.3,0.43,2.84,0.43,125,True,0.0008
+D_incident_N3,3 stopped vehicle(s) on Western Express Highway (1651800604->12432945774),4379.3,107.1,2.51,3.58,0.43,124,True,0.0006

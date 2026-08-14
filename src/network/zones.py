@@ -21,12 +21,19 @@ from __future__ import annotations
 from pathlib import Path
 
 import geopandas as gpd
+import numpy as np
 import osmnx as ox
 from shapely.geometry import box
+
+from src.network.graph_io import load_enriched_graph
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENRICHED_GRAPHML = REPO_ROOT / "data" / "processed" / "network_corridor_enriched.graphml"
 PROCESSED_DIR = REPO_ROOT / "data" / "processed"
+
+# Zone demand loads onto the arterial network, not small side streets: connectors
+# snap to the nearest node touching one of these classes (the WEH spine + main arterials).
+ARTERIAL_CLASSES = {"motorway", "trunk", "primary"}
 
 # Corridor bbox longitudes (from build_network.CORRIDOR_BBOX).
 WEST, EAST = 72.820, 72.885
@@ -50,16 +57,39 @@ ZONE_BANDS = [
 ]
 
 
+def _arterial_nodes(G):
+    """Node IDs and coordinates for nodes touching an arterial-class edge."""
+    art = set()
+    for u, v, d in G.edges(data=True):
+        hwy = d.get("highway")
+        hwy = hwy[0] if isinstance(hwy, list) else hwy
+        base = hwy.replace("_link", "") if isinstance(hwy, str) else ""
+        if base in ARTERIAL_CLASSES:
+            art.add(u)
+            art.add(v)
+    ids = list(art)
+    xs = np.array([G.nodes[n]["x"] for n in ids])
+    ys = np.array([G.nodes[n]["y"] for n in ids])
+    return ids, xs, ys
+
+
+def _nearest_arterial(centroid, ids, xs, ys):
+    """Nearest arterial node to a centroid (planar approx — fine at corridor scale)."""
+    d2 = (xs - centroid.x) ** 2 + (ys - centroid.y) ** 2
+    return ids[int(np.argmin(d2))]
+
+
 def build_zones() -> gpd.GeoDataFrame:
     """Construct the TAZ GeoDataFrame with polygons, centroids, and connector nodes."""
-    G = ox.load_graphml(ENRICHED_GRAPHML)
+    G = load_enriched_graph()
+    art_ids, art_xs, art_ys = _arterial_nodes(G)
 
     records = []
     north = CORRIDOR_NORTH
     for i, (name, south) in enumerate(ZONE_BANDS):
         poly = box(WEST, south, EAST, north)  # (minx, miny, maxx, maxy)
         centroid = poly.centroid
-        connector_node = ox.nearest_nodes(G, X=centroid.x, Y=centroid.y)
+        connector_node = _nearest_arterial(centroid, art_ids, art_xs, art_ys)
         records.append({
             "zone_id": i,
             "name": name,
