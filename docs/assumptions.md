@@ -10,8 +10,12 @@ why, and what would change it. This is a living document — update it as the mo
 | A3 | Static User Equilibrium (not Dynamic Traffic Assignment) | Sufficient for "which link is the bottleneck?"; DTA needs time-varying OD | Time-of-day profiles / operational module added |
 | A4 | Lane count used directly; road width never measured | No API provides width; OSM tags `lanes=*`; effective width handled via capacity reduction factor | Never (settled decision D3) |
 | A5 | BPR parameters α=0.15, β=4 (US defaults) | Standard starting point; not yet calibrated for Indian mixed traffic | Google travel-time calibration (Phase 3) |
-| A6 | Free-flow speed imputed from OSM road class where `maxspeed` absent | OSM speed tags sparse in Mumbai | Manual verification of major links (Phase 1) |
+| A6 | Free-flow speed imputed from OSM road class where `maxspeed` absent | OSM speed tags sparse in Mumbai (only ~16% of major links tagged) | Manual verification of major links (Phase 1) |
 | A7 | Synthetic gravity-model OD matrix | No survey/CTS OD data in hand; tests the pipeline | Zhang et al. (2025) OD-from-travel-times upgrade |
+| A8 | Lane counts imputed by road class where OSM untagged (84% of links) | OSM `lanes` sparse | Manual satellite verification of WEH spine links |
+| A9 | Capacity in PCU/h; encroachment factor 0.85 (parking/hawkers/bus stops) | Mumbai effective width 30–40% below nominal (plan §3.1) | Calibrate against MCGM counts |
+| A10 | Stopped-vehicle bottleneck = capacity multiplier `μ_incident` (§1.5), not microsimulation | Keeps the static-UE baseline; `curve_area` calibrated to HCM incident tables | SUMO microsimulation phase |
+| A11 | TAZs are locality-latitude bands, not census wards | Ward shapefiles not yet acquired (task 0.8) | Replace with ward polygons once census data collected |
 
 ## Phase 0 network-extraction notes
 

@@ -20,6 +20,10 @@ data/raw/osm/*
 data/raw/google_api/*
 data/raw/tomtom/*
 !data/**/.gitkeep
+# ...but DO version the small collected flow-summary CSVs (the observed dataset).
+!data/raw/tomtom/collected/
+data/raw/tomtom/collected/*
+!data/raw/tomtom/collected/*.csv
 
 # --- Generated network binaries (reproducible via src/network/build_network.py) ---
 *.graphml

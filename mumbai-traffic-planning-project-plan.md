@@ -76,6 +76,44 @@ When road capacity increases, additional traffic is generated — people who pre
 
 The related Braess Paradox (adding a road can increase total travel time) is a theoretical edge case but worth testing: after adding a candidate link, verify that TSTT actually decreased. If it didn't, the tool should flag this.
 
+### 1.5 Stopped-Vehicle Bottlenecks (Incident Capacity Reduction)
+
+A stopped or broken-down vehicle in a running lane is a common and important cause of Mumbai congestion (breakdowns, illegal parking, bus halts, accidents). Such a vehicle does **not** merely remove its own footprint from the road: approaching traffic must deflect laterally around it — a swerve over a taper length — creating a turbulence "shadow" (a flow *curve*) that is unusable for through movement. The effective cross-section available to moving traffic shrinks by **more** than the vehicle's physical size.
+
+**Geometric model:**
+
+```
+effective_area = total_area − N × curve_area
+
+Where:
+  total_area = W × L_infl        (carriageway width × influence-window length)
+  N          = number of stopped vehicles in the (side) lane
+  curve_area = deflection-shadow plan area rendered unusable per stopped vehicle
+             ≈ veh_width × (veh_length + 2 × taper_length)
+```
+
+**From area to capacity.** Link throughput scales with the effective cross-section, so we define an **incident capacity-reduction factor** that multiplies the nominal link capacity:
+
+```
+μ_incident  = effective_area / total_area = 1 − N × (curve_area / total_area)
+C_effective = C_nominal × max(μ_floor, μ_incident)
+```
+
+This effective capacity feeds directly into the BPR function used everywhere else in the model:
+
+```
+t_a(v) = t_a^0 × [ 1 + α × (v / C_effective)^β ]
+```
+
+So a stopped-vehicle bottleneck raises travel time on the affected link exactly through the same mechanism as any other capacity change — no special-casing in the assignment loop is needed. It can be applied either as a **per-link attribute** (`n_stopped`, default 0) or as a **scenario** (Section 4: "incident on link X").
+
+**Why the curve, not just the footprint.** Pure lane-subtraction underestimates the impact. Empirically (HCM 6th ed. freeway incident tables), a single vehicle fully blocking **one of three lanes** drops capacity to ~49% remaining — a 51% loss, far more than the 33% a naïve 1-of-3 lane count implies. The extra loss is the rubbernecking/merging turbulence the `curve_area` term represents. The model is therefore **calibrated** two ways:
+
+- *Geometric default* (a car partially intruding from the kerb/side lane, ~116 m² shadow) → 8–17% capacity loss on a 4/3/2-lane road, matching HCM **shoulder-incident** values.
+- *HCM-calibrated* (a car fully blocking a lane) → `curve_area` back-solved to ~455–588 m² so μ reproduces the HCM **one-lane-blocked** fractions (0.35 / 0.49 / 0.58 for 2 / 3 / 4 lanes).
+
+`α`, `β`, `curve_area`, `taper_length`, and `L_infl` are all calibration parameters (see `docs/calibration_log.md`). Implemented in [`src/network/incident.py`](src/network/incident.py).
+
 ---
 
 ## 2. System Architecture
@@ -405,10 +443,12 @@ Tasks:
 
 ```
 Tasks:
-├── Define 2-3 intervention scenarios
+├── Define 2-4 intervention scenarios
 │   ├── Scenario A: Widen a known bottleneck link (+1 lane each direction)
 │   ├── Scenario B: Add a new link (e.g., hypothetical connector road)
-│   └── Scenario C: Remove a link (test Braess paradox / road closure impact)
+│   ├── Scenario C: Remove a link (test Braess paradox / road closure impact)
+│   └── Scenario D: Stopped-vehicle incident on a link (§1.5) — set N stopped
+│       vehicles, apply C_effective = C_nominal × μ_incident, re-assign
 ├── For each scenario:
 │   ├── Modify network (change capacity, add/remove link)
 │   ├── Re-run UE assignment (same OD demand)
@@ -614,6 +654,7 @@ Decisions made during project planning, with rationale preserved.
 | D8 | Open-source stack only (Python, osmnx, AequilibraE, SUMO) | PTV Visum, TransCAD, AIMSUN | ₹0 vs. ₹8-15L/year. Commercial tools are appropriate for institutional planning offices, not for a research/startup baseline. |
 | D9 | Static User Equilibrium assignment for baseline | Dynamic Traffic Assignment (DTA) | Static UE is sufficient for planning-level analysis (which link is the bottleneck?). DTA adds time-varying flows but is computationally much harder and requires time-varying OD data. Add in later phase. |
 | D10 | Fixed demand for baseline, with induced demand flagged as known limitation | Variable demand with elasticity | Correct induced demand modeling requires calibrated demand elasticity, which needs data we don't have yet. Flagging it ensures we don't over-trust intervention benefit estimates. |
+| D11 | Model stopped vehicles as a capacity-reduction factor (effective_area = total_area − N × curve_area), not as microscopic obstacles | Microsimulate each stalled vehicle (SUMO); ignore incidents entirely | A capacity multiplier μ_incident feeds the existing BPR/UE machinery with no new solver — consistent with the static-equilibrium baseline (D9). The `curve_area` term captures rubbernecking turbulence (calibrated to HCM incident tables), which pure lane-subtraction misses. Microsimulation is deferred to a later SUMO phase. |
 
 ## Appendix C: Folder Structure (Proposed)
 
