@@ -43,11 +43,23 @@ pip install -r requirements.txt
 
 ### API keys (Phase 0.7)
 
-Copy `.env.example` to `.env` and fill in your keys. `.env` is git-ignored.
+Copy `.env.example` to `.env` and add your **TomTom** key (primary traffic-data source;
+free tier, no credit card — sign up at [developer.tomtom.com](https://developer.tomtom.com/)).
+`.env` is git-ignored.
 
 ```bash
 cp .env.example .env
 ```
+
+Test the key and collect data via the cached client:
+
+```bash
+python -m src.data.tomtom_client flow  --point 19.250,72.856
+python -m src.data.tomtom_client route --from 19.250,72.856 --to 19.055,72.840
+```
+
+Every response is cached to `data/raw/tomtom/` — the cache **is** the dataset; the same
+query is never paid for twice.
 
 ---
 

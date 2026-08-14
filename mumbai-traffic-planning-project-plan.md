@@ -107,7 +107,7 @@ The related Braess Paradox (adding a road can increase total travel time) is a t
 │  free-flow speed, length)                            │
 ├─────────────────────────────────────────────────────┤
 │              DATA LAYER (external)                   │
-│  OSM, Google Routes API, Census, CTS reports         │
+│  OSM, TomTom APIs, Census, CTS reports               │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -166,30 +166,49 @@ Effective capacity = nominal capacity × (1 / weighted average PCU based on loca
 
 ### 3.2 Travel Time / Speed Data (for calibration)
 
-| Source | What It Provides | Access | Cost |
-|--------|-------------------|--------|------|
-| **Google Routes API** | Travel time between two points, with/without traffic, for specified departure time | API key required; $200/month free credit covers ~20,000-40,000 calls — far more than baseline needs | **₹0** (free tier) |
-| **Google Distance Matrix API** | OD travel time matrix for multiple origins/destinations simultaneously | Same free credit pool; more efficient for batch OD queries | **₹0** (free tier) |
-| **Google Maps Traffic Layer** (JavaScript API) | 4-level congestion classification (green/yellow/orange/red) covering the full visible network simultaneously | Same free credit; can be rasterized into georeferenced data using the World Bank `googletraffic` approach | **₹0** (free tier) |
-| **TomTom Traffic Flow API** | Actual speed values per road segment (richer than Google's ordinal colors); current speed + free-flow speed | Free tier: 2,500 requests/day | **₹0** (free tier) |
-| **Google Maps Traffic Trends** (as used in Zhang et al. 2025) | Aggregated, anonymized travel time statistics | Research access; not a public API — paper describes methodology; can be approximated via Routes API sampling over multiple days | ₹0 if replicated via Routes API |
-| **Mapbox Traffic API** | Live and typical traffic speeds as vector tiles | Requires Mapbox Enterprise for actual speed data | Expensive — skip for baseline |
+**Primary source: TomTom (no credit card required)**
 
-**Data caching rule:** Every API response is saved to `data/raw/google_api/` or `data/raw/tomtom/` as JSON with a timestamp. Never query the same OD pair + departure time twice. The cache is the dataset — the API is just the collection mechanism. For a pilot corridor, total unique queries should be ~1,000-2,000, well within free tiers.
+| TomTom API | What It Provides | Free Tier |
+|------------|-----------------|-----------|
+| **Flow Segment Data** | Per-segment: `currentSpeed`, `freeFlowSpeed`, `currentTravelTime`, `freeFlowTravelTime`, `confidence`, segment coordinates. Pass any lat/lng, get the nearest road segment's data. | 2,500 requests/day |
+| **Routing API** | Point-to-point route: travel time (with traffic), distance, route geometry, `trafficDelayInSeconds` | 2,500 requests/day (shared quota) |
+| **Matrix Routing API** | Batch OD travel time matrix: up to 700 origin-destination pairs per request | 2,500 requests/day (shared quota) |
 
-**Google Maps Platform Terms of Service — key constraints:**
-- DO use the Routes/Distance Matrix API to query travel times programmatically. This is the intended use case and is within ToS.
-- DO NOT scrape Google Maps traffic layer tile images (the red/orange/green visual overlay) by screenshotting or intercepting tile requests. This violates ToS.
-- DO NOT store or cache Google-provided map tiles or imagery. API *response data* (travel times, distances) can be cached for the purpose of the project.
-- The `googletraffic` package (World Bank) uses the Maps JavaScript API to render the traffic layer and extract pixel colors — review its ToS compliance for your specific use before relying on it as a primary source. The Routes API is the safer path.
-- TomTom's free tier has more permissive terms for research/non-commercial use.
+**Why TomTom over Google for this project:**
+- No credit card or billing account required — sign up with email at developer.tomtom.com
+- Flow Segment Data returns `currentSpeed` AND `freeFlowSpeed` in one call (Google requires separate peak and off-peak queries to compute the same ratio)
+- Confidence score per segment tells you which data points to trust
+- 2,500/day is more than enough: ~50-100 calls per collection session, spread over 1-2 weeks, gives the full calibration dataset
+- If daily limit is hit, requests return HTTP 429 (no charge, no surprise bill)
+- More permissive licensing than Google for research/non-commercial use
+
+**Secondary/fallback source (only if TomTom coverage is insufficient):**
+
+| Source | What It Provides | Access | When to Use |
+|--------|-------------------|--------|-------------|
+| **Google Routes API** | Travel time between two points with/without traffic | Requires billing account with credit card ($200/month free credit) | Only if TomTom coverage gaps found for specific Mumbai segments |
+| **Google Maps Traffic Layer** | 4-level congestion visualization (green/yellow/orange/red) | Same Google billing account | Full-network congestion snapshot; coarser than TomTom segment data |
+
+**Data caching rule:** Every API response is saved to `data/raw/tomtom/` as JSON with a timestamp and the query parameters. Never query the same coordinate + time-of-day twice. The cache IS the dataset — the API is just the collection mechanism.
+
+**Data collection schedule (2,500/day budget):**
+- Day 1-3: Flow Segment Data — ~50 points along WEH during AM peak (8-10 AM), ~50 during PM peak (6-8 PM), ~50 at off-peak (11 PM-1 AM for free-flow validation). Total: ~450 calls over 3 days.
+- Day 4-5: Routing API — 25-30 OD pairs during AM peak and PM peak. Total: ~120 calls.
+- Day 6: Matrix Routing — batch TAZ-to-TAZ travel time matrix (1-2 calls for 10-15 TAZs).
+- Day 7-10: Repeat Day 1-3 on different weekdays to check day-to-day consistency.
+- Total: ~1,000-1,500 calls over ~10 days. Well within free tier.
+
+**Google Maps Platform ToS note (if Google is used later):**
+- DO use Routes/Distance Matrix API programmatically — within ToS.
+- DO NOT scrape traffic layer tile images — violates ToS.
+- API response data (travel times, distances) can be cached.
 
 **Baseline approach:**
-1. Define ~20-30 OD pairs within the corridor (key entry/exit ramps, major intersections)
-2. Query Google Routes API (within free tier) for travel times at 15-minute intervals during a peak period (e.g., 8:00-10:00 AM, weekday)
-3. Also query free-flow travel times (e.g., 3:00 AM departure)
-4. The ratio of congested/free-flow travel time gives the Travel Time Index (TTI) for each segment — this is the calibration target for BPR parameters
-5. Optionally supplement with TomTom segment-level speeds for link-level validation
+1. Set up TomTom developer account (no credit card) and obtain API key
+2. Query Flow Segment Data for ~50 points along WEH at peak and off-peak times
+3. From each response, extract `currentSpeed / freeFlowSpeed` ratio → per-segment Travel Time Index (TTI), the direct calibration target for BPR parameters
+4. Query Routing API for 25-30 OD pairs to get corridor-level travel times for validation
+5. Use Matrix Routing for the TAZ-to-TAZ cost matrix needed by the gravity model
 
 ### 3.3 Demand Data (Layer 2)
 
@@ -199,7 +218,7 @@ Effective capacity = nominal capacity × (1 / weighted average PCU based on loca
 | **MCGM Development Plan data** | Zonal land use (residential, commercial, industrial) | Partially public |
 | **Employment centers** | BKC, Andheri MIDC, Goregaon IT park, etc. — known major attractors | Public knowledge + OSM POI data |
 | **CTS-2 OD data** | If obtainable: calibrated OD matrices for MMR | Needs institutional access (MMRDA/LEA) |
-| **Google Routes API (indirect)** | Travel times between zones → infer relative demand via gravity model calibration | ₹0 (free tier) |
+| **TomTom Matrix Routing API** | Travel times between zones → gravity model cost matrix | ₹0 (free tier, no credit card) |
 
 **Baseline approach (Gravity Model):**
 
@@ -216,7 +235,7 @@ Where:
   β    = calibration parameter
 ```
 
-Zone the corridor into ~10-15 traffic analysis zones (TAZs) based on ward boundaries. Use census population for production, estimated employment for attraction. Calibrate β so that the resulting assignment produces link volumes and travel times roughly consistent with observed Google travel times.
+Zone the corridor into ~10-15 traffic analysis zones (TAZs) based on ward boundaries. Use census population for production, estimated employment for attraction. Calibrate β so that the resulting assignment produces link volumes and travel times roughly consistent with observed TomTom travel times.
 
 This is explicitly a SYNTHETIC baseline. The OD matrix will be approximate. That's acceptable for a first iteration — the architecture matters more than the calibration at this stage.
 
@@ -224,7 +243,7 @@ This is explicitly a SYNTHETIC baseline. The OD matrix will be approximate. That
 
 | Source | What It Provides | Access |
 |--------|-------------------|--------|
-| **Google Routes API travel times** | Observed corridor travel times to compare against model predictions | ₹0 (free tier) |
+| **TomTom Routing API travel times** | Observed corridor travel times to compare against model predictions | ₹0 (free tier, no credit card) |
 | **MCGM traffic count data** | Manual/TIRTL traffic counts at selected intersections | Request from MCGM Traffic Planning dept |
 | **Mumbai Traffic Police reports** | Aggregate traffic statistics, accident data | Partially public |
 | **Personal observation / field visits** | Ground-truth for specific bottleneck locations, queue lengths | Free |
@@ -246,7 +265,7 @@ This is explicitly a SYNTHETIC baseline. The OD matrix will be approximate. That
 | **Numeric / scientific** | `numpy`, `scipy` | Matrix operations, optimization (scipy.optimize for gravity model calibration) |
 | **Visualization** | `matplotlib`, `folium` or `kepler.gl` | Static plots for analysis; interactive maps for network visualization |
 | **Data storage** | GeoJSON / GeoPackage files (baseline); PostGIS if scaling | No need for a database in baseline; flat files are fine |
-| **API interaction** | `requests`, `googlemaps` client library | Google Routes/Distance Matrix API calls |
+| **API interaction** | `requests` | TomTom Routing, Traffic Flow, Matrix Routing API calls. No special client library needed — standard REST with API key in query parameter. |
 | **Notebook environment** | Jupyter Lab | Iterative exploration, documentation-as-you-go |
 
 ### 4.2 Simulation Tools (Post-Baseline)
@@ -280,7 +299,7 @@ Tasks:
 ├── Download Mumbai OSM extract (Geofabrik or Overpass)
 ├── Extract pilot corridor network using osmnx
 │   └── Bounding box: approx Dahisar to Bandra, ±2km buffer
-├── Set up Google Cloud project + Routes API key
+├── Set up TomTom developer account (no credit card) + get API key
 ├── Collect census ward-level population data for corridor zones
 ├── Identify major employment centers in/near corridor
 └── Read Zhang et al. (2025) arXiv:2507.00306 — full paper
@@ -327,7 +346,7 @@ Tasks:
 │   └── Auto trip generation rate (trips/person, from CTS or IRC guidelines)
 ├── Compute production vector P_i and attraction vector A_j
 ├── Get free-flow travel time matrix (TAZ to TAZ)
-│   └── Use shortest-path on network, or Google Distance Matrix API
+│   └── Use shortest-path on network, or TomTom Matrix Routing API
 ├── Implement gravity model
 │   ├── T_ij = k × P_i × A_j / c_ij^β
 │   ├── Apply doubly-constrained balancing (Furness/IPF)
@@ -372,7 +391,7 @@ Tasks:
 │   ├── Volume-to-Capacity ratio (V/C) per link → identifies bottlenecks
 │   ├── Total System Travel Time (TSTT)
 │   └── Route travel times for key OD pairs
-└── Validation: compare model travel times against Google observed
+└── Validation: compare model travel times against TomTom observed
     travel times for the same OD pairs during peak hour
 ```
 
@@ -442,8 +461,8 @@ Tasks:
 
 | Check | Source | Target |
 |-------|--------|--------|
-| Corridor end-to-end travel time | Google Routes API (peak hour) | Within ±30% for baseline |
-| Link-level relative congestion pattern | Google Traffic visual (red = V/C > 0.9, orange = 0.7-0.9, green = < 0.7) | Qualitative match — known bottleneck locations should show high V/C |
+| Corridor end-to-end travel time | TomTom Routing API (peak hour) | Within ±30% for baseline |
+| Link-level relative congestion pattern | TomTom Flow Segment Data (currentSpeed/freeFlowSpeed < 0.5 ≈ red, 0.5-0.75 ≈ orange, >0.75 ≈ green) | Qualitative match — known bottleneck locations should show high V/C |
 | Total corridor volume | MCGM traffic counts (if obtainable) or CTS reported volumes | Within ±40% (we're using synthetic demand, so tolerance is wider) |
 
 ### 6.3 Sensitivity Analysis
@@ -519,7 +538,7 @@ Each of these is a discrete upgrade that can be done independently:
 | Risk | Impact | Likelihood | Mitigation |
 |------|--------|------------|------------|
 | OSM data quality poor for Mumbai internal roads | Network model unreliable | MEDIUM | Manual verification of pilot corridor; limit scope to major roads |
-| Google API free tier exhausted | Cannot collect additional calibration data mid-project | VERY LOW | Baseline needs ~1,000-2,000 calls; free tier allows 20,000-40,000/month; cache every response locally to avoid re-queries; TomTom free tier available as backup |
+| TomTom free tier exhausted for a day | Data collection paused for 24 hours | VERY LOW | Baseline needs ~100 calls/day spread over 10 days; free tier allows 2,500/day; cache every response; if hit, resume next day — no charge, no escalation |
 | Gravity model produces unrealistic OD matrix | Assignment results meaningless | HIGH | Sensitivity analysis; compare against any available CTS/MCGM data; accept that baseline is approximate |
 | Frank-Wolfe doesn't converge | No equilibrium solution | LOW | Well-studied algorithm; use proven implementations (AequilibraE) if custom code fails |
 | BPR parameters wrong for Indian conditions | Travel times systematically biased | MEDIUM | Calibrate α, β using observed Google travel times; literature has India-specific values |
@@ -532,8 +551,8 @@ Each of these is a discrete upgrade that can be done independently:
 
 | Item | Estimated Cost | Notes |
 |------|---------------|-------|
-| Google Maps Platform (Routes, Distance Matrix, Traffic Layer) | **₹0** | $200/month free credit = ~₹17,000/month. Baseline needs ~1,000-2,000 calls (~5% of free tier). |
-| TomTom Traffic Flow API | **₹0** | Free tier: 2,500 requests/day. Supplementary speed data. |
+| TomTom APIs (Flow Segment Data, Routing, Matrix Routing) | **₹0** | No credit card needed. 2,500 requests/day free. Baseline needs ~1,000-1,500 total calls over 10 days. |
+| Google Maps Platform (fallback only, if needed) | **₹0** | $200/month free credit. Requires billing account with credit card. Use only if TomTom coverage is insufficient. |
 | OpenStreetMap data | **₹0** | Free download via Overpass API or Geofabrik. |
 | Census / demographic data | **₹0** | Free from censusindia.gov.in. |
 | Compute (local machine) | **₹0** | Baseline corridor assignment runs in seconds on any modern laptop. No cloud needed. |
@@ -589,7 +608,7 @@ Decisions made during project planning, with rationale preserved.
 | D2 | N(t) vehicle conservation equation is NOT the starting point | N(t) accumulation tracking per segment | N(t) is a correct but irrelevant state variable for planning. Planning needs OD demand + network equilibrium. N(t) may re-enter for operational control in future phases. |
 | D3 | Use lane count, not road width in meters | Estimate road width from maps/satellite imagery | No API provides width. Measuring pixels → dividing by lane width → getting lane count is a harder route to the same answer. OSM provides lane counts directly. |
 | D4 | Do not use average car length × road area for vehicle estimation | area ÷ 5m = vehicle count | This computes jam density (theoretical max), not current occupancy. It's circular — to get current occupancy from geometry you need density, which is the thing you're estimating. |
-| D5 | Use Google Routes API within free tier (₹0), not paid data | Paid traffic data subscriptions, scraping traffic tile colors | $200/month free credit covers 20-40× baseline needs. Scraping tiles violates ToS and gives only 4 ordinal levels vs. continuous travel time values. |
+| D5 | TomTom as primary traffic data API (no credit card) | Google Routes API (requires billing account), Mapbox (expensive), scraping traffic tile colors | TomTom gives per-segment currentSpeed + freeFlowSpeed + confidence in one call — richer than Google's route-level travel time. No credit card required. 2,500/day free tier is 25× baseline daily needs. Google kept as documented fallback only. |
 | D6 | Pilot corridor (WEH Dahisar–Bandra) before full MMR | Full metropolitan region model | Scope control. A corridor model validates the architecture in weeks; a full MMR model takes months and fails for the same calibration reasons, just more expensively. |
 | D7 | Gravity model for baseline OD; Zhang et al. approach as upgrade | Household travel surveys, mobile CDR data | Surveys are expensive and outdated (CTS used 25-year-old data). CDR data needs telecom partnerships. Gravity model is synthetic but free and tests the pipeline. Zhang et al. (2025) shows Google travel time data can estimate OD without surveys — this is the priority upgrade. |
 | D8 | Open-source stack only (Python, osmnx, AequilibraE, SUMO) | PTV Visum, TransCAD, AIMSUN | ₹0 vs. ₹8-15L/year. Commercial tools are appropriate for institutional planning offices, not for a research/startup baseline. |
@@ -606,7 +625,7 @@ mumbai-traffic-tool/
 │   ├── raw/
 │   │   ├── osm/                    # OSM extracts
 │   │   ├── census/                 # Ward-level population data
-│   │   └── google_api/             # Cached API responses
+│   │   └── tomtom/                 # Cached TomTom API responses (JSON + timestamp)
 │   ├── processed/
 │   │   ├── network.gpkg            # Cleaned, attributed network
 │   │   ├── zones.gpkg              # TAZ boundaries

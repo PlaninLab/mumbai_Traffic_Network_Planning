@@ -21,20 +21,32 @@ Cached at `data/raw/osm/corridor.graphml` and `data/processed/network_corridor.g
 | Employment centers | OSM POI + public knowledge (BKC, Andheri MIDC, …) | — | Public | ⬜ Phase 0.8 |
 | Trip generation rates | CTS-2 / IRC guidelines | 2021 / — | Report | ⬜ Phase 2 |
 
-## Travel time / calibration
+## Travel time / calibration — PRIMARY: TomTom (plan §3.2, decision D5)
 
-| Dataset | Source | Access | Status |
-|---------|--------|--------|--------|
-| Peak-hour OD travel times | Google Routes API (free tier) | API key needed (`.env`) | ⬜ Phase 0.7 blocks this |
-| Free-flow travel times | Google Routes API (~3 AM departure) | Same | ⬜ Phase 0.7 |
-| Segment speeds (supplementary) | TomTom Traffic Flow API (free tier) | API key | ⬜ optional |
+| Dataset | Source (endpoint) | Access | Status |
+|---------|-------------------|--------|--------|
+| Per-segment current + free-flow speed | TomTom **Flow Segment Data** | Key in `.env` | ✅ key active; collection pending |
+| Corridor OD travel times (validation) | TomTom **Routing API** | Same key | ✅ tested; collection pending |
+| TAZ-to-TAZ cost matrix (gravity model) | TomTom **Matrix Routing API** | Same key | ⬜ Phase 2 |
+| Segment/route travel times (fallback) | Google Routes API | Needs billing account | ⬜ only if TomTom gaps found |
 
-**Caching rule (plan §3.2):** every API response saved to `data/raw/google_api/` or
-`data/raw/tomtom/` as timestamped JSON. Never query the same OD pair + departure time twice.
+**Client:** [`src/data/tomtom_client.py`](../src/data/tomtom_client.py) — cached wrapper for all
+three endpoints. Key read from `TOMTOM_API_KEY` (git-ignored `.env`).
+
+**Caching rule (plan §3.2):** every API response saved to `data/raw/tomtom/<endpoint>/<hash>.json`
+with a UTC timestamp and the query params. Never query the same coordinate + time-of-day twice —
+**the cache IS the dataset.**
+
+**Collection schedule (2,500/day free tier, ~1,000–1,500 calls over ~10 days):**
+- Day 1–3: Flow Segment — ~50 WEH points × AM peak / PM peak / off-peak (~450 calls)
+- Day 4–5: Routing — 25–30 OD pairs × AM/PM peak (~120 calls)
+- Day 6: Matrix Routing — TAZ-to-TAZ matrix (1–2 calls)
+- Day 7–10: repeat Day 1–3 on other weekdays for day-to-day consistency
 
 ## ToS / licensing notes
 
 - OSM: ODbL — attribution required, share-alike on derived DB.
-- Google Maps Platform: use Routes/Distance Matrix API only; do **not** scrape traffic tiles
-  or cache map imagery. Response data (times/distances) may be cached for the project. (Plan §3.2)
-- TomTom: free tier permits research/non-commercial use.
+- TomTom: free tier permits research/non-commercial use; per-segment `currentSpeed` +
+  `freeFlowSpeed` + `confidence` in one call. HTTP 429 on daily-limit — no charge.
+- Google Maps Platform (fallback only): use Routes/Distance Matrix API programmatically; do
+  **not** scrape traffic tiles or cache map imagery. Response data may be cached. (Plan §3.2)

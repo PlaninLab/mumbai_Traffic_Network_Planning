@@ -19,9 +19,10 @@ matplotlib>=3.8
 folium>=0.16
 mapclassify>=2.6   # required by geopandas .explore() interactive maps
 
-# --- API interaction (Phase 0.7+ — Google Routes / Distance Matrix) ---
+# --- API interaction (Phase 0.7+ — TomTom Flow/Routing/Matrix; primary source) ---
+# Plain REST with the key as a query param — no vendor client library needed.
 requests>=2.31
-googlemaps>=4.10
+# googlemaps>=4.10   # only if the Google fallback (plan §3.2) is ever activated
 
 # --- Notebook environment ---
 jupyterlab>=4.0
