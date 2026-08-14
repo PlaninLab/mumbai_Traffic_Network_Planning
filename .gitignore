@@ -1,0 +1,33 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# --- Virtual environment ---
+.venv/
+venv/
+env/
+
+# --- Secrets / API keys ---
+.env
+*.key
+secrets.json
+config.local.*
+
+# --- Large / raw data (keep dir structure via .gitkeep, ignore contents) ---
+data/raw/osm/*
+data/raw/google_api/*
+data/raw/tomtom/*
+!data/**/.gitkeep
+
+# --- Generated network binaries (reproducible via src/network/build_network.py) ---
+*.graphml
+*.gpkg
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Jupyter ---
+*.ipynb_checkpoints
