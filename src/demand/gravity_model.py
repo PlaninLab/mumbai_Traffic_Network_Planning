@@ -91,15 +91,20 @@ def furness(P: np.ndarray, A: np.ndarray, deterrence: np.ndarray,
     return T
 
 
-def build_od(beta: float = DEFAULT_BETA, G=None, target_total_pcu: float = TARGET_TOTAL_PCU):
+def build_od(beta: float = DEFAULT_BETA, G=None, target_total_pcu: float = TARGET_TOTAL_PCU,
+             production_scale=1.0, attraction_scale=1.0, processing_rate=None):
     """Full pipeline: zones -> P/A -> cost -> gravity -> vehicle-PCU OD.
 
     The gravity output gives the relative OD *shape*; the interzonal (off-diagonal)
     total is then scaled to `target_total_pcu` so assignment congestion is realistic.
+    Robustness params (production_scale / attraction_scale / processing_rate) reshape
+    the ingoing/outgoing rates per zone — see generation.production_attraction.
     Returns (zones_df, person_T, vehicle_pcu_T, cost_C).
     """
     zones = build_zones()
-    pa = production_attraction()
+    pa = production_attraction(production_scale=production_scale,
+                               attraction_scale=attraction_scale,
+                               processing_rate=processing_rate)
     zones = zones.merge(pa[["P", "A"]], left_on="zone_id", right_index=True)
 
     P = zones["P"].to_numpy(float)

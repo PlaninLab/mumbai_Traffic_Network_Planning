@@ -16,6 +16,9 @@ why, and what would change it. This is a living document — update it as the mo
 | A9 | Capacity in PCU/h; encroachment factor 0.85 (parking/hawkers/bus stops) | Mumbai effective width 30–40% below nominal (plan §3.1) | Calibrate against MCGM counts |
 | A10 | Stopped-vehicle bottleneck = capacity multiplier `μ_incident` (§1.5), not microsimulation | Keeps the static-UE baseline; `curve_area` calibrated to HCM incident tables | SUMO microsimulation phase |
 | A11 | TAZs are locality-latitude bands, not census wards | Ward shapefiles not yet acquired (task 0.8) | Replace with ward polygons once census data collected |
+| A12 | Incident network-wide TSTT can fall slightly under static UE (converse-Braess) | Static UE assumes instant perfect rerouting; incidents are really dynamic | Report corridor through-time + link delay as the intuitive incident metrics; add DTA later |
+| A13 | Regional "processing rate" = per-zone cap on trips emitted/absorbed per hour | Simple gateway/discharge throughput limit | Calibrate against observed zone gateway volumes |
+| A14 | Ingoing/outgoing flow rates set via demand-total + per-zone scales | Lets flow regime be varied for robustness (§6.3) without new data | Replace with real time-of-day demand profiles |
 
 ## Phase 0 network-extraction notes
 

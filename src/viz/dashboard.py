@@ -28,7 +28,7 @@ def plot_comparison(csv_path: Path = COMPARISON_CSV,
     # --- TSTT by case ---
     colors = ["#264653" if c == "base" else
               ("#e63946" if v > 0 else "#2a9d8f")
-              for c, v in zip(df["case"], df["dTSTT_vs_base"])]
+              for c, v in zip(df["case"], df["dTSTT_pct"])]
     ax1.bar(df["case"], df["TSTT_pcu_h"], color=colors)
     ax1.axhline(df.loc[df["case"] == "base", "TSTT_pcu_h"].iloc[0],
                 color="#264653", ls="--", lw=1, label="base TSTT")

@@ -46,18 +46,30 @@ def zonal_socioeconomics() -> pd.DataFrame:
     return df
 
 
-def production_attraction() -> pd.DataFrame:
-    """Compute peak-hour production P_i and attraction A_j, balanced to equal totals.
+def production_attraction(production_scale=1.0, attraction_scale=1.0,
+                          processing_rate: float | None = None) -> pd.DataFrame:
+    """Compute peak-hour production P_i (outflow) and attraction A_j (inflow).
 
-    In a doubly-constrained gravity model, total productions must equal total
-    attractions. We scale attractions to the production total.
+    Robustness parameters (see docs/assumptions.md):
+      production_scale : scalar or per-zone array — scales OUTGOING trip rate (P_i).
+      attraction_scale : scalar or per-zone array — scales INCOMING trip rate (A_j).
+      processing_rate  : optional per-zone ceiling (person-trips/hr) on how much a
+                         region can emit OR absorb — its throughput / "processing rate".
+                         Caps both P_i and A_j; models a gateway/discharge limit.
+
+    In a doubly-constrained gravity model total productions must equal total
+    attractions, so after any capping we rescale attractions to the production total.
     """
     df = zonal_socioeconomics()
-    # Production proportional to population.
-    df["P"] = df["population_k"] * PEAK_TRIP_RATE
-    # Attraction proportional to employment, then scaled so sum(A) == sum(P).
-    raw_A = df["employment_k"].astype(float)
-    df["A"] = raw_A * (df["P"].sum() / raw_A.sum())
+    df["P"] = df["population_k"] * PEAK_TRIP_RATE * production_scale   # outflow rate
+    df["A"] = df["employment_k"].astype(float) * attraction_scale     # inflow rate (shape)
+
+    if processing_rate is not None:
+        df["P"] = df["P"].clip(upper=processing_rate)
+        df["A"] = df["A"].clip(upper=processing_rate)
+
+    # Balance attractions to the production total (doubly-constrained requirement).
+    df["A"] = df["A"] * (df["P"].sum() / df["A"].sum())
     return df
 
 

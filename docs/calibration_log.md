@@ -35,3 +35,18 @@ against, and the resulting fit. Empty until Phase 2–3 (demand + assignment cal
   corridor bottleneck (worst V/C ≈ 1.97). All-cases sweep runs (base + A/B/C + incident N=1..3).
   Demand total is a synthetic calibration knob — replace with TomTom-calibrated OD (Zhang et al.
   upgrade) and BPR calibration against the collected TTI data before trusting absolute numbers.
+
+- **2026-08-14 — First BPR calibration (`src/demand/calibration.py`).** Fitted α, β to the
+  evening TomTom snapshot (`flow_evening_20260814_2139.csv`, 44 matched points):
+  **α = 0.183, β = 1.0** (β hit the lower bound), RMSE 0.31 on TTI. **PRELIMINARY / weak:**
+  the evening data is off-peak (observed TTI 1.0–1.54, nearly flat) while modelled v/C spans
+  0.07–2.47, so the fit can't constrain the curve's steepness. **Action: recollect at AM peak
+  (8–10 AM) and PM peak (6–8 PM)** for a real calibration — `python -m src.data.collect_flow
+  --label am_peak`. Demand scale should be jointly calibrated (held fixed here).
+
+- **2026-08-14 — Robustness sweep (`src/scenarios/robustness.py`).** Re-ran the all-cases
+  simulation under 5 configs (default / calibrated BPR / low_flow 12k / high_flow 24k /
+  capped_proc). **Directional conclusions stable in every config:** widen = only improvement
+  (rank 1), incidents always harmful & monotonic (N1<N2<N3), close always ~+20% (worst),
+  add-link always backfires (Braess). Only B_addlink's magnitude swings (+2% to +33%). Per
+  §6.3 this means the model is structurally useful despite approximate absolute numbers.

@@ -19,15 +19,21 @@ from src.assignment import metrics
 
 
 def run_base(beta: float = 2.0, total_pcu: float = TARGET_TOTAL_PCU,
+             alpha: float = 0.15, bpr_beta: float = 4.0,
+             production_scale=1.0, attraction_scale=1.0, processing_rate=None,
              max_iter: int = 80, tol: float = 0.01, verbose: bool = True):
     """Return (G, zones, result, link_df) for the base case."""
     G = load_enriched_graph()
-    zones, _person_T, veh_T, _C = build_od(beta=beta, G=G, target_total_pcu=total_pcu)
+    zones, _person_T, veh_T, _C = build_od(
+        beta=beta, G=G, target_total_pcu=total_pcu,
+        production_scale=production_scale, attraction_scale=attraction_scale,
+        processing_rate=processing_rate)
     pairs = od_to_pairs(zones, veh_T)
     total = sum(p[2] for p in pairs)
     if verbose:
         print(f"[run] {len(pairs)} OD pairs, total interzonal demand {total:.0f} PCU/h")
-    result = assign(G, pairs, max_iter=max_iter, tol=tol, verbose=verbose)
+    result = assign(G, pairs, alpha=alpha, beta=bpr_beta,
+                    max_iter=max_iter, tol=tol, verbose=verbose)
     df = metrics.link_table(G, result)
     return G, zones, result, df
 

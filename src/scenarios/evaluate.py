@@ -37,96 +37,118 @@ SCEN_DOCS = REPO_ROOT / "docs" / "scenarios"
 
 
 def _worst_arterial_link(G, df: pd.DataFrame):
-    """Pick the highest-V/C link on an arterial class with real flow (target for A/D)."""
+    """Pick the highest-V/C link on an arterial class with real flow (target for A/C)."""
     arterials = {"motorway", "trunk", "primary", "secondary"}
     cand = df[(df["flow_pcu_hr"] > 0) & (df["highway"].isin(arterials))]
     top = cand.iloc[0]
     return int(top["u"]), int(top["v"]), int(top["key"]), top
 
 
-def _summarize(label, description, G, result, df, base_tstt):
+def _weh_incident_stretch(df: pd.DataFrame, k: int = 6):
+    """Top-k highest-flow WEH mainline links — a realistic incident zone (Scenario D).
+
+    An incident on a single 96 m segment is trivially bypassed under UE; a
+    contiguous high-flow stretch represents a real stopped-vehicle blockage and
+    produces an unambiguous corridor delay.
+    """
+    weh = df[(df["flow_pcu_hr"] > 0) & (df["highway"].isin({"motorway", "trunk"}))]
+    weh = weh.sort_values("flow_pcu_hr", ascending=False).head(k)
+    return [(int(r.u), int(r.v), int(r.key)) for r in weh.itertuples()]
+
+
+def _summarize(label, description, G, result, df, base_tstt, corridor_od=None,
+               base_corr=None):
     tstt = metrics.tstt_hours(result)
     vc = df[df["flow_pcu_hr"] > 0]["vc_ratio"]
-    checks = metrics.consistency_checks(G, result, 0)
-    return {
+    corr = (metrics.corridor_travel_time(G, result, *corridor_od)
+            if corridor_od else float("nan"))
+    row = {
         "case": label,
         "description": description,
         "TSTT_pcu_h": round(tstt, 1),
-        "dTSTT_vs_base": round(tstt - base_tstt, 1) if base_tstt is not None else 0.0,
         "dTSTT_pct": round(100 * (tstt - base_tstt) / base_tstt, 2) if base_tstt else 0.0,
+        "corridor_tt_min": round(corr, 1),
+        "dCorridor_pct": round(100 * (corr - base_corr) / base_corr, 2)
+                         if base_corr else 0.0,
         "max_vc": round(vc.max(), 2),
         "mean_vc": round(vc.mean(), 2),
         "links_over_cap": int((vc > 1.0).sum()),
         "converged": result.converged,
         "gap": round(result.gaps[-1], 4) if result.gaps else None,
     }
+    return row, corr
 
 
 def run_all_cases(beta: float = 2.0, total_pcu: float = TARGET_TOTAL_PCU,
+                  alpha: float = 0.15, bpr_beta: float = 4.0,
+                  production_scale=1.0, attraction_scale=1.0, processing_rate=None,
                   incident_sweep=(1, 2, 3), verbose: bool = True):
-    """Simulate every case on fixed demand. Returns (summary_df, cases dict)."""
+    """Simulate every case on fixed demand. Returns (summary_df, cases dict).
+
+    BPR (alpha/bpr_beta) and demand robustness params (production_scale,
+    attraction_scale, processing_rate) let the whole sweep be re-run under
+    different calibrations / flow regimes.
+    """
     G0 = load_enriched_graph()
-    zones, _pT, veh_T, _C = build_od(beta=beta, G=G0, target_total_pcu=total_pcu)
+    zones, _pT, veh_T, _C = build_od(
+        beta=beta, G=G0, target_total_pcu=total_pcu,
+        production_scale=production_scale, attraction_scale=attraction_scale,
+        processing_rate=processing_rate)
     pairs = od_to_pairs(zones, veh_T)  # fixed demand across all scenarios
 
     def _run(H):
         # Tight tolerance so scenario ΔTSTT is well below the smallest effect we report.
-        r = assign(H, pairs, max_iter=250, tol=0.001, verbose=False)
+        r = assign(H, pairs, alpha=alpha, beta=bpr_beta, max_iter=250, tol=0.001, verbose=False)
         return r, metrics.link_table(H, r)
 
     summaries = []
     cases = {}
+
+    # Corridor OD for the driver-experienced through-time metric (Dahisar -> Bandra).
+    corridor_od = (int(zones.iloc[0]["connector_node"]), int(zones.iloc[-1]["connector_node"]))
 
     # --- Base ---
     if verbose:
         print("[evaluate] Base case ...")
     res0, df0 = _run(G0)
     base_tstt = metrics.tstt_hours(res0)
-    summaries.append(_summarize("base", "Current network + demand", G0, res0, df0, None))
+    row0, base_corr = _summarize("base", "Current network + demand", G0, res0, df0,
+                                 None, corridor_od, None)
+    summaries.append(row0)
     cases["base"] = (G0, res0, df0)
 
-    # Target link for A/D = worst arterial bottleneck in the base case.
+    def _add(label, desc, H, res, df):
+        row, _ = _summarize(label, desc, H, res, df, base_tstt, corridor_od, base_corr)
+        summaries.append(row)
+        cases[label] = (H, res, df)
+
+    # Target link for A/C = worst arterial bottleneck in the base case.
     tu, tv, tk, top = _worst_arterial_link(G0, df0)
     tgt = f"{top['name'] or top['highway']} ({tu}->{tv})"
     if verbose:
         print(f"[evaluate] Worst bottleneck: {tgt}  V/C={top['vc_ratio']} lanes={top['lanes']}")
 
     # --- Scenario A: widen worst bottleneck (+1 lane) ---
-    if verbose:
-        print("[evaluate] Scenario A: widen worst bottleneck ...")
     Ga = scn.widen_link(G0, tu, tv, tk, add_lanes=1)
-    resa, dfa = _run(Ga)
-    summaries.append(_summarize("A_widen", f"Widen {tgt} +1 lane", Ga, resa, dfa, base_tstt))
-    cases["A_widen"] = (Ga, resa, dfa)
+    _add("A_widen", f"Widen {tgt} +1 lane", Ga, *_run(Ga))
 
-    # --- Scenario B: add a bypass link between the two zones around the bottleneck ---
-    if verbose:
-        print("[evaluate] Scenario B: add bypass connector ...")
-    # Connect the connector nodes of the two most-loaded adjacent zones (north & south ends).
-    n_north = int(zones.iloc[0]["connector_node"])
-    n_south = int(zones.iloc[-1]["connector_node"])
-    Gb = scn.add_link(G0, n_north, n_south, lanes=2, highway="primary", speed_kph=60)
-    resb, dfb = _run(Gb)
-    summaries.append(_summarize("B_addlink", "Add Dahisar-Bandra bypass link", Gb, resb, dfb, base_tstt))
-    cases["B_addlink"] = (Gb, resb, dfb)
+    # --- Scenario B: add a bypass link end-to-end ---
+    Gb = scn.add_link(G0, corridor_od[0], corridor_od[1], lanes=2, highway="primary", speed_kph=60)
+    _add("B_addlink", "Add Dahisar-Bandra bypass link", Gb, *_run(Gb))
 
     # --- Scenario C: close the worst bottleneck link ---
-    if verbose:
-        print("[evaluate] Scenario C: close a link ...")
     Gc = scn.remove_link(G0, tu, tv)
-    resc, dfc = _run(Gc)
-    summaries.append(_summarize("C_close", f"Close {tgt}", Gc, resc, dfc, base_tstt))
-    cases["C_close"] = (Gc, resc, dfc)
+    _add("C_close", f"Close {tgt}", Gc, *_run(Gc))
 
-    # --- Scenario D: stopped-vehicle incident sweep on the worst bottleneck ---
+    # --- Scenario D: stopped-vehicle incident SWEEP on a WEH mainline stretch ---
+    stretch = _weh_incident_stretch(df0, k=6)
+    if verbose:
+        print(f"[evaluate] Incident stretch: {len(stretch)} WEH links")
     for n in incident_sweep:
-        label = f"D_incident_N{n}"
-        if verbose:
-            print(f"[evaluate] Scenario D: incident N={n} stopped vehicles ...")
-        Gd = scn.set_incident(G0, tu, tv, n_stopped=n, k=tk)
-        resd, dfd = _run(Gd)
-        summaries.append(_summarize(label, f"{n} stopped vehicle(s) on {tgt}", Gd, resd, dfd, base_tstt))
-        cases[label] = (Gd, resd, dfd)
+        Gd = G0
+        for (iu, iv, ik) in stretch:
+            Gd = scn.set_incident(Gd, iu, iv, n_stopped=n, k=ik)
+        _add(f"D_incident_N{n}", f"{n} stopped veh on WEH stretch ({len(stretch)} links)", Gd, *_run(Gd))
 
     summary_df = pd.DataFrame(summaries)
     return summary_df, cases, (tu, tv, tk)

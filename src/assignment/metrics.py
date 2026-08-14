@@ -11,6 +11,7 @@ produce planning-relevant outputs (plan §Phase 3):
 
 from __future__ import annotations
 
+import networkx as nx
 import pandas as pd
 
 
@@ -49,6 +50,39 @@ def top_bottlenecks(df: pd.DataFrame, n: int = 10) -> pd.DataFrame:
     active = df[df["flow_pcu_hr"] > 0]
     return active.head(n)[["name", "highway", "lanes", "flow_pcu_hr",
                            "capacity_pcu_hr", "vc_ratio", "n_stopped"]]
+
+
+def corridor_travel_time(G, result, origin, dest) -> float:
+    """Equilibrium shortest-path travel time (minutes) between two nodes.
+
+    Uses the converged congested link times as edge weights. For a through-corridor
+    OD (e.g. Dahisar -> Bandra) this is the driver-experienced travel time, which —
+    unlike network TSTT — behaves intuitively under an incident (it rises), because
+    it measures the cost of actually traversing the corridor rather than the
+    system-wide sum that UE rerouting can rebalance.
+    """
+    # Write congested times onto the graph, then Dijkstra.
+    for (u, v, k), t in result.time.items():
+        G[u][v][k]["_eq_time"] = t
+    try:
+        secs = nx.shortest_path_length(G, origin, dest, weight="_eq_time")
+    except (nx.NetworkXNoPath, nx.NodeNotFound):
+        return float("inf")
+    return secs / 60.0
+
+
+def link_delay(G, result, u, v, k=None) -> dict:
+    """Travel-time increase (s) on a specific link vs its free-flow time.
+
+    Always >= 0 for a congested/incident link — the direct bottleneck signal.
+    """
+    keys = [k] if k is not None else list(G.get_edge_data(u, v).keys())
+    out = {}
+    for key in keys:
+        e = (u, v, key)
+        if e in result.time:
+            out[e] = round(result.time[e] - result.t0[e], 1)
+    return out
 
 
 def consistency_checks(G, result, od_total: float) -> dict:
