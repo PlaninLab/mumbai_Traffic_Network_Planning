@@ -25,6 +25,10 @@ data/raw/tomtom/*
 *.graphml
 *.gpkg
 
+# --- osmnx / tooling caches ---
+cache/
+.claude/settings.local.json
+
 # --- OS ---
 .DS_Store
 Thumbs.db
