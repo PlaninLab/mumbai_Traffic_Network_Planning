@@ -49,9 +49,20 @@ def _latest_csv() -> Path:
     return Path(files[-1])
 
 
-def match_observations(G, link_df: pd.DataFrame, flow_csv: Path) -> pd.DataFrame:
-    """Attach each observed TomTom point to its nearest link's modelled v/C."""
-    obs = pd.read_csv(flow_csv)
+def _all_csvs() -> list[Path]:
+    files = sorted(glob.glob(str(COLLECTED_DIR / "flow_*.csv")))
+    if not files:
+        raise FileNotFoundError("No collected flow CSVs — run src.data.collect_flow first.")
+    return [Path(f) for f in files]
+
+
+def match_observations(G, link_df: pd.DataFrame, flow_csvs) -> pd.DataFrame:
+    """Attach each observed TomTom point (pooled over one or more CSVs) to its
+    nearest link's modelled v/C."""
+    if isinstance(flow_csvs, (str, Path)):
+        flow_csvs = [flow_csvs]
+    frames = [pd.read_csv(c) for c in flow_csvs]
+    obs = pd.concat(frames, ignore_index=True)
     obs = obs[(obs["tti"].notna()) & (obs["tti"] > 0)]
 
     # Nearest edges for all observed points. osmnx 2.x returns an array of (u,v,k) rows.
@@ -84,9 +95,17 @@ def fit_bpr(matched: pd.DataFrame):
     return float(alpha), float(beta), rmse
 
 
-def calibrate(flow_csv: Path | None = None, total_pcu: float = 18000.0, passes: int = 2):
-    """Run the calibration loop. Returns a dict of results."""
-    flow_csv = flow_csv or _latest_csv()
+def calibrate(flow_csv=None, total_pcu: float = 18000.0, passes: int = 2):
+    """Run the calibration loop, pooling ALL collected snapshots by default.
+
+    flow_csv: a single path, a list of paths, or None (pool every collected CSV).
+    """
+    if flow_csv is None:
+        flow_csvs = _all_csvs()
+    elif isinstance(flow_csv, (str, Path)):
+        flow_csvs = [Path(flow_csv)]
+    else:
+        flow_csvs = [Path(c) for c in flow_csv]
     alpha, beta = 0.15, 4.0
     history = []
 
@@ -102,7 +121,7 @@ def calibrate(flow_csv: Path | None = None, total_pcu: float = 18000.0, passes: 
             res = assign(G, pairs, alpha=alpha, beta=beta, max_iter=250, tol=0.001, verbose=False)
             df = metrics.link_table(G, res)
 
-        matched = match_observations(G, df, flow_csv)
+        matched = match_observations(G, df, flow_csvs)
         if len(matched) < 4:
             raise RuntimeError(f"Only {len(matched)} matched observations — insufficient to fit.")
         alpha, beta, rmse = fit_bpr(matched)
@@ -110,7 +129,7 @@ def calibrate(flow_csv: Path | None = None, total_pcu: float = 18000.0, passes: 
                         "rmse": round(rmse, 4), "n_matched": len(matched)})
 
     return {
-        "flow_csv": flow_csv.name,
+        "flow_csv": ", ".join(c.name for c in flow_csvs),
         "alpha": round(alpha, 4),
         "beta": round(beta, 3),
         "rmse": round(rmse, 4),

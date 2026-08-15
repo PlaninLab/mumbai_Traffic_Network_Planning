@@ -44,6 +44,13 @@ against, and the resulting fit. Empty until Phase 2–3 (demand + assignment cal
   (8–10 AM) and PM peak (6–8 PM)** for a real calibration — `python -m src.data.collect_flow
   --label am_peak`. Demand scale should be jointly calibrated (held fixed here).
 
+- **2026-08-15 — Pooled calibration (3 readings, 132 points).** Pooled all collected
+  snapshots (Aug-14 21:39, Aug-15 18:31, Aug-15 19:07). Fit unchanged: **α=0.183, β=1.0**
+  (β still pinned to floor), RMSE 0.31. Root cause is now conclusive: all three snapshots are
+  holiday / off-peak with observed TTI ≤ 1.54, so there is no high-congestion signal to lift β.
+  **More off-peak readings will not help** — need a genuine working-day AM (8–10) or PM (6–8)
+  peak, ideally a Mon–Fri, to observe TTI 2–3. Until then the "calibrated" config is illustrative.
+
 - **2026-08-14 — Robustness sweep (`src/scenarios/robustness.py`).** Re-ran the all-cases
   simulation under 5 configs (default / calibrated BPR / low_flow 12k / high_flow 24k /
   capped_proc). **Directional conclusions stable in every config:** widen = only improvement
