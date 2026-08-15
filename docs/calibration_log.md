@@ -15,6 +15,8 @@ against, and the resulting fit. Empty until Phase 2–3 (demand + assignment cal
 | Mode split (private vehicle share) | — | ~30% | CTS data | ⬜ pending |
 | Incident `curve_area` | — | 116 m² geometric (car, side-lane); HCM-calibrated 455–588 m² (full lane block) | HCM incident tables / Mumbai breakdown observations | ⬜ pending |
 | Incident influence length | L_infl | 100 m | Field observation of queue-taper length | ⬜ pending |
+| Queue jam density | — | 130 veh/km/lane (~7.7 m/veh) | Field spacing at standstill | ⬜ pending |
+| Incident duration | T | 0.5 h (30 min) | Mumbai breakdown-clearance times | ⬜ pending |
 
 ## Demand / assignment parameters currently in use (Phase 2–3 baseline)
 
@@ -50,6 +52,16 @@ against, and the resulting fit. Empty until Phase 2–3 (demand + assignment cal
   holiday / off-peak with observed TTI ≤ 1.54, so there is no high-congestion signal to lift β.
   **More off-peak readings will not help** — need a genuine working-day AM (8–10) or PM (6–8)
   peak, ideally a Mon–Fri, to observe TTI 2–3. Until then the "calibrated" config is illustrative.
+
+- **2026-08-16 — Deterministic incident-queue model added (`src/network/incident.py`,
+  `deterministic_queue`).** Each incident case now reports a physical queue: length (km),
+  queued vehicles, clearance time, and delay (veh-h), surfaced as new columns in
+  `scenario_comparison.csv`. Arrival is clamped at nominal capacity so the reported queue is
+  *incident-attributable* (not pre-existing oversaturation). On the WEH stretch (already at V/C
+  ≈ 2 in peak) the incident queue grows ≈ 1.0 / 2.1 / 3.1 km for N = 1/2/3 and is reported as
+  non-clearing (clearance = ∞) — correct, since the corridor has no spare capacity to recover
+  into. Jam density (130 veh/km/lane) and incident duration (30 min) are defaults pending field
+  calibration.
 
 - **2026-08-14 — Robustness sweep (`src/scenarios/robustness.py`).** Re-ran the all-cases
   simulation under 5 configs (default / calibrated BPR / low_flow 12k / high_flow 24k /

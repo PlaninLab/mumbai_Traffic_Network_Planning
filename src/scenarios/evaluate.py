@@ -28,6 +28,7 @@ import pandas as pd
 from src.assignment.frank_wolfe import assign
 from src.assignment import metrics
 from src.demand.gravity_model import build_od, od_to_pairs, TARGET_TOTAL_PCU
+from src.network import incident as inc
 from src.network.graph_io import load_enriched_graph
 from src.scenarios import define_scenario as scn
 
@@ -56,6 +57,49 @@ def _weh_incident_stretch(df: pd.DataFrame, k: int = 6):
     return [(int(r.u), int(r.v), int(r.key)) for r in weh.itertuples()]
 
 
+def _incident_queue(stretch, base_df, incident_df):
+    """Deterministic queue behind the incident stretch.
+
+    Arrival = the PRE-incident equilibrium flow that wanted each link (base case);
+    service rate = the incident-reduced capacity; clearance = nominal capacity.
+    Aggregates across the stretch: worst single-link queue length + stretch totals.
+    """
+    base = {(int(r.u), int(r.v), int(r.key)): r for r in base_df.itertuples()}
+    inci = {(int(r.u), int(r.v), int(r.key)): r for r in incident_df.itertuples()}
+    max_len = 0.0
+    tot_veh = 0.0
+    tot_delay = 0.0
+    worst_clear = 0.0
+    persists = False   # any link stays saturated at nominal cap => queue never clears
+    for e in stretch:
+        b, i = base.get(e), inci.get(e)
+        if b is None or i is None:
+            continue
+        q = inc.deterministic_queue(
+            arrival_flow=float(b.flow_pcu_hr),
+            capacity_incident=float(i.capacity_pcu_hr),
+            lanes=int(b.lanes or 1),
+            capacity_nominal=float(b.capacity_pcu_hr),
+        )
+        max_len = max(max_len, q["queue_len_km"])
+        tot_veh += q["queued_veh"]
+        delay, clear = q["total_delay_veh_h"], q["clear_time_min"]
+        if delay == float("inf") or clear == float("inf"):
+            persists = persists or q["overloaded"]
+        else:
+            tot_delay += delay
+            worst_clear = max(worst_clear, clear)
+    return {
+        "queue_len_km": round(max_len, 3),
+        "queued_veh": round(tot_veh, 0),
+        # inf where the corridor is already saturated at nominal capacity: the
+        # incident queue persists until peak demand subsides (a real signal that
+        # this stretch has no spare capacity to recover into).
+        "queue_delay_veh_h": float("inf") if persists else round(tot_delay, 1),
+        "queue_clear_min": float("inf") if persists else round(worst_clear, 1),
+    }
+
+
 def _summarize(label, description, G, result, df, base_tstt, corridor_od=None,
                base_corr=None):
     tstt = metrics.tstt_hours(result)
@@ -73,6 +117,12 @@ def _summarize(label, description, G, result, df, base_tstt, corridor_od=None,
         "max_vc": round(vc.max(), 2),
         "mean_vc": round(vc.mean(), 2),
         "links_over_cap": int((vc > 1.0).sum()),
+        # Deterministic incident-queue metrics (0 for non-incident cases; filled
+        # in for Scenario D). See src/network/incident.deterministic_queue.
+        "queue_len_km": 0.0,
+        "queued_veh": 0.0,
+        "queue_clear_min": 0.0,
+        "queue_delay_veh_h": 0.0,
         "converged": result.converged,
         "gap": round(result.gaps[-1], 4) if result.gaps else None,
     }
@@ -117,8 +167,10 @@ def run_all_cases(beta: float = 2.0, total_pcu: float = TARGET_TOTAL_PCU,
     summaries.append(row0)
     cases["base"] = (G0, res0, df0)
 
-    def _add(label, desc, H, res, df):
+    def _add(label, desc, H, res, df, extra=None):
         row, _ = _summarize(label, desc, H, res, df, base_tstt, corridor_od, base_corr)
+        if extra:
+            row.update(extra)
         summaries.append(row)
         cases[label] = (H, res, df)
 
@@ -148,7 +200,10 @@ def run_all_cases(beta: float = 2.0, total_pcu: float = TARGET_TOTAL_PCU,
         Gd = G0
         for (iu, iv, ik) in stretch:
             Gd = scn.set_incident(Gd, iu, iv, n_stopped=n, k=ik)
-        _add(f"D_incident_N{n}", f"{n} stopped veh on WEH stretch ({len(stretch)} links)", Gd, *_run(Gd))
+        res_d, df_d = _run(Gd)
+        q = _incident_queue(stretch, df0, df_d)
+        _add(f"D_incident_N{n}", f"{n} stopped veh on WEH stretch ({len(stretch)} links)",
+             Gd, res_d, df_d, extra=q)
 
     summary_df = pd.DataFrame(summaries)
     return summary_df, cases, (tu, tv, tk)

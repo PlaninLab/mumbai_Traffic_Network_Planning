@@ -127,6 +127,14 @@ As stalled vehicles increase from 1 to 3 on a WEH stretch, congestion on that st
 steadily (V/C **1.97 → 2.29 → 2.50 → 2.71**) and corridor travel time rises **+0.7% → +2.8% →
 +5.7%**. A single breakdown is a nuisance; a small cluster is a real corridor event.
 
+We also translate each incident into a **physical queue** using a deterministic
+(input-output) queuing model: the reduced capacity is a bottleneck, so vehicles pile up behind
+it at (arrival − reduced-capacity) and the backup length = queued vehicles ÷ (lanes × jam
+density). On the WEH stretch the incident-attributable queue grows **≈ 1.0 km → 2.1 km → 3.1 km**
+for N = 1 → 3. Because this stretch is already at capacity in the peak, the model correctly
+reports the queue as *non-clearing* until peak demand subsides — a direct signal that the
+corridor has no spare capacity to absorb even a single breakdown.
+
 ### Robustness: do the conclusions survive uncertainty?
 Our demand and speed numbers are approximate, so we re-ran **all cases under 5 different
 settings** (different congestion assumptions, higher/lower traffic, capacity caps). The
@@ -177,7 +185,7 @@ mumbai-traffic-tool/
 │   ├── network/                   LAYER 1 — the road model
 │   │   ├── build_network.py       Download the corridor road map from OpenStreetMap
 │   │   ├── enrich_attributes.py   Add lanes, speed, capacity to each road segment
-│   │   ├── incident.py            ★ Stopped-vehicle capacity model (effective_area)
+│   │   ├── incident.py            ★ Stopped-vehicle capacity model + queue length
 │   │   ├── zones.py               Split the corridor into 11 travel-analysis zones
 │   │   └── graph_io.py            Load the network with numbers typed correctly
 │   ├── demand/                    LAYER 2 — how many trips go where
