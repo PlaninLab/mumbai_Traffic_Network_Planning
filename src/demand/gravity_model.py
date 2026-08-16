@@ -92,13 +92,18 @@ def furness(P: np.ndarray, A: np.ndarray, deterrence: np.ndarray,
 
 
 def build_od(beta: float = DEFAULT_BETA, G=None, target_total_pcu: float = TARGET_TOTAL_PCU,
-             production_scale=1.0, attraction_scale=1.0, processing_rate=None):
+             production_scale=1.0, attraction_scale=1.0, processing_rate=None,
+             cost_source: str = "network", departure_time: str | None = None):
     """Full pipeline: zones -> P/A -> cost -> gravity -> vehicle-PCU OD.
 
     The gravity output gives the relative OD *shape*; the interzonal (off-diagonal)
     total is then scaled to `target_total_pcu` so assignment congestion is realistic.
     Robustness params (production_scale / attraction_scale / processing_rate) reshape
     the ingoing/outgoing rates per zone — see generation.production_attraction.
+
+    cost_source: 'network' (free-flow shortest path, default) or a real traffic-aware
+    provider — 'google' / 'tomtom' — which pulls live TAZ×TAZ travel times
+    (src/demand/od_costs.py). Real costs need the provider's API key configured.
     Returns (zones_df, person_T, vehicle_pcu_T, cost_C).
     """
     zones = build_zones()
@@ -109,7 +114,12 @@ def build_od(beta: float = DEFAULT_BETA, G=None, target_total_pcu: float = TARGE
 
     P = zones["P"].to_numpy(float)
     A = zones["A"].to_numpy(float)
-    C = cost_matrix(zones, G=G)
+    if cost_source == "network":
+        C = cost_matrix(zones, G=G)
+    else:
+        from src.demand.od_costs import cost_matrix_from_provider
+        C = cost_matrix_from_provider(zones, G=G, source=cost_source,
+                                      departure_time=departure_time)
 
     # Deterrence f(c) = c^(-beta); guard the zero diagonal.
     with np.errstate(divide="ignore"):

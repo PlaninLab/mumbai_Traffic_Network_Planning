@@ -204,7 +204,10 @@ Effective capacity = nominal capacity × (1 / weighted average PCU based on loca
 
 ### 3.2 Travel Time / Speed Data (for calibration)
 
-**Primary source: TomTom (no credit card required)**
+**Primary source: TomTom (no credit card required).** For quality-first work the project
+now supports a **hybrid provider model** (decision D17): **HERE** Traffic v7 for segment
+flow, **Google** Routes for OD travel-time matrices, TomTom as the default + incidents.
+Each activates when its `.env` key is present; TomTom remains the zero-config default.
 
 | TomTom API | What It Provides | Free Tier |
 |------------|-----------------|-----------|
@@ -724,6 +727,7 @@ Decisions made during project planning, with rationale preserved.
 | D14 | Host via a read-only FastAPI web app | Ship Python scripts only; a heavier Streamlit/Dash app | A browser dashboard + report + JSON API reaches non-technical stakeholders without them running Python. Read-only keeps the TomTom key off the web (collection stays a separate scheduled job) and makes it trivially deployable (Docker/Procfile, `$PORT`). FastAPI is light and standard vs. a heavier framework. |
 | D15 | Translate incidents into a physical queue via a deterministic (input-output) model, clamping arrival at nominal capacity | Report capacity loss only; a shockwave/LWR queue model | The deterministic triangular queue gives an interpretable "queue is X km / clears in Y min" figure directly from the capacity reduction, consistent with the static baseline. Clamping arrival at nominal capacity isolates the *incident-attributable* queue rather than pre-existing oversaturation; an already-saturated link correctly reports a non-clearing queue. A full shockwave model is deferred to the SUMO phase. |
 | D16 | Store readings in a tabular SQLite DB; offer full-day 10/15-min adaptive sampling | Keep per-run CSVs only; a fixed uniform interval; a client-server DB (Postgres) | SQLite is a zero-dependency single-file SQL store — queryable, idempotent (`UNIQUE(run_id, idx)`), and openable in any SQL tool — without running a DB server. Segment-adaptive cadence (10 min peak / 15 min off-peak) spends finer resolution where congestion actually changes; the built-in daily-call estimate keeps collection inside the 2,500/day TomTom budget. CSVs remain as a human-readable export + fallback. |
+| D17 | Hybrid data-provider model: HERE (segment flow) + Google Routes (OD matrices) + TomTom (default/cross-check), best source per primitive | Single vendor (TomTom-only, or Google-only); INRIX enterprise feed | No single self-serve vendor is best at BOTH the flow primitive and India OD travel times. HERE gives the cleanest self-serve segment flow (speed + free-flow + jam factor, deep probe fleet); Google has the best India urban travel-time model (Android/Maps probes) for the gravity cost matrix; TomTom stays the zero-config default + incidents. All normalise into the same CSV/SQLite/dashboard pipeline; each activates only when its `.env` key is present, so nothing breaks without keys. INRIX (research-grade historical) is noted as the enterprise upgrade. `src/data/here_client.py`, `google_client.py`, `apicache.py`; `demand/od_costs.py` (`build_od(cost_source=...)`). |
 
 ## Appendix C: Folder Structure (Proposed)
 

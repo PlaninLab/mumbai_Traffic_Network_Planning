@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS flow_readings (
     tti           REAL,
     confidence    REAL,
     road_closure  INTEGER,
+    provider      TEXT,
     UNIQUE(run_id, idx)
 );
 CREATE INDEX IF NOT EXISTS ix_flow_segment ON flow_readings(segment);
@@ -67,7 +68,7 @@ CREATE INDEX IF NOT EXISTS ix_flow_run     ON flow_readings(run_id);
 
 _COLUMNS = ["run_id", "fetched_utc", "fetched_ist", "segment", "label", "idx",
             "lat", "lon", "current_speed_kph", "free_speed_kph", "tti",
-            "confidence", "road_closure"]
+            "confidence", "road_closure", "provider"]
 
 
 def connect() -> sqlite3.Connection:
@@ -75,6 +76,11 @@ def connect() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.executescript(_SCHEMA)
+    # Lightweight migration: add columns introduced after the DB was first created.
+    have = {r[1] for r in conn.execute("PRAGMA table_info(flow_readings)")}
+    if "provider" not in have:
+        conn.execute("ALTER TABLE flow_readings ADD COLUMN provider TEXT")
+        conn.commit()
     return conn
 
 
@@ -94,6 +100,7 @@ def _normalize(row: dict, run_id: str) -> tuple:
         _float(row.get("currentSpeed_kph", row.get("current_speed_kph"))),
         _float(row.get("freeFlowSpeed_kph", row.get("free_speed_kph"))),
         _float(row.get("tti")), _float(row.get("confidence")), rc,
+        row.get("provider") or "tomtom",
     )
 
 

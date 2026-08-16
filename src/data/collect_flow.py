@@ -30,6 +30,7 @@ import osmnx as ox
 from shapely.geometry import LineString
 
 from src.data import tomtom_client as tt
+from src.data import here_client
 from src.data import segments as seg
 from src.data import store
 
@@ -76,7 +77,19 @@ def weh_spine_points(n_points: int) -> list[tuple[float, float]]:
     return samples
 
 
-def collect(n_points: int, label: str, segment: str | None = None) -> Path:
+def _flow_reading(provider: str, lat: float, lon: float):
+    """Return (current_kph, free_kph, confidence, road_closure) from the chosen
+    provider, normalised so the rest of the pipeline is provider-agnostic."""
+    if provider == "here":
+        r = here_client.flow_point(lat, lon)
+        return r["current_kph"], r["free_kph"], r.get("confidence"), r.get("road_closure")
+    # default: TomTom Flow Segment
+    d = tt.flow_segment(f"{lat:.5f},{lon:.5f}")
+    return d.get("currentSpeed"), d.get("freeFlowSpeed"), d.get("confidence"), d.get("roadClosure")
+
+
+def collect(n_points: int, label: str, segment: str | None = None,
+            provider: str = "tomtom") -> Path:
     points = weh_spine_points(n_points)
     now_utc = datetime.now(timezone.utc)
     ts = now_utc.astimezone().strftime("%Y%m%d_%H%M")
@@ -87,15 +100,14 @@ def collect(n_points: int, label: str, segment: str | None = None) -> Path:
     out_path = OUT_DIR / f"flow_{label}_{ts}.csv"
 
     rows = []
-    print(f"[collect_flow] Sampling {n_points} points along WEH ({label}) ...")
+    print(f"[collect_flow] Sampling {n_points} points along WEH ({label}, provider={provider}) ...")
     for i, (lat, lon) in enumerate(points):
         point = f"{lat:.5f},{lon:.5f}"
         try:
-            d = tt.flow_segment(point)
+            cur, free, conf, rc = _flow_reading(provider, lat, lon)
         except Exception as e:  # noqa: BLE001 — log and continue the sweep
             print(f"  [{i:>2}] {point}  ERROR: {e}")
             continue
-        cur, free = d.get("currentSpeed"), d.get("freeFlowSpeed")
         tti = (free / cur) if cur else None  # travel-time index: >1 means slower than free-flow
         rows.append({
             "idx": i,
@@ -104,8 +116,9 @@ def collect(n_points: int, label: str, segment: str | None = None) -> Path:
             "currentSpeed_kph": cur,
             "freeFlowSpeed_kph": free,
             "tti": round(tti, 3) if tti else None,
-            "confidence": d.get("confidence"),
-            "roadClosure": d.get("roadClosure"),
+            "confidence": conf,
+            "roadClosure": rc,
+            "provider": provider,
             "label": label,
             "segment": segment,
             "fetched_utc": now_utc.isoformat(),
@@ -142,6 +155,8 @@ def main() -> None:
                              "collecting outside the segment's weekday window (override with --force).")
     parser.add_argument("--force", action="store_true",
                         help="Collect even if the current time is outside the --segment window.")
+    parser.add_argument("--provider", choices=["tomtom", "here"], default="tomtom",
+                        help="Flow data source (default tomtom; 'here' needs HERE_API_KEY).")
     args = parser.parse_args()
 
     label = args.label
@@ -159,7 +174,7 @@ def main() -> None:
             print(f"[collect_flow] --force: tagging as '{args.segment}' despite "
                   f"being in the '{actual}' window.")
 
-    collect(args.n, label, segment=args.segment)
+    collect(args.n, label, segment=args.segment, provider=args.provider)
 
 
 if __name__ == "__main__":

@@ -181,7 +181,10 @@ mumbai-traffic-tool/
 ├── src/
 │   ├── data/
 │   │   ├── tomtom_client.py       Cached TomTom API client (speeds, routes, matrices)
-│   │   ├── collect_flow.py        Sample live speeds along the WEH (--segment peak/avg)
+│   │   ├── here_client.py         ★ HERE Traffic v7 flow client (--provider here)
+│   │   ├── google_client.py       ★ Google Routes OD travel-time matrix client
+│   │   ├── apicache.py            Shared on-disk cache + .env key loader for providers
+│   │   ├── collect_flow.py        Sample live speeds along the WEH (--segment, --provider)
 │   │   ├── collect_day.py         ★ Full-day loop: 10-min peak / 15-min off-peak
 │   │   ├── store.py               ★ Tabular SQLite store (flow_readings table)
 │   │   ├── segments.py            ★ Weekday peak vs average-delay window definitions
@@ -195,6 +198,7 @@ mumbai-traffic-tool/
 │   ├── demand/                    LAYER 2 — how many trips go where
 │   │   ├── generation.py          Trips produced/attracted per zone (population, jobs)
 │   │   ├── gravity_model.py       Distribute trips into an origin→destination matrix
+│   │   ├── od_costs.py            ★ Real traffic-aware OD cost matrix (Google/TomTom)
 │   │   └── calibration.py         Fit the congestion curve to real TomTom speeds
 │   ├── assignment/                LAYER 3 — the equilibrium engine
 │   │   ├── bpr.py                 Road-slows-down-when-full formula (BPR)
@@ -347,6 +351,43 @@ docker run -p 8000:8000 mumbai-traffic          # open http://localhost:8000
 `Dockerfile`. Point the platform at the repo; it honours `$PORT` automatically. For live
 weekday data on the host, add the cron jobs from `scripts/crontab.example` (set the box to
 `Asia/Kolkata`), and supply `TOMTOM_API_KEY` as an environment variable.
+
+---
+
+## 7.7 Data providers — the hybrid model
+
+Quality-first, this project uses a **hybrid** of the best source for each data primitive
+(decision D17). Each is optional and configured by its own key in `.env`:
+
+| Primitive | Provider | Why | How to use |
+|-----------|----------|-----|------------|
+| **Segment flow** (current + free-flow speed) | **HERE** Traffic v7 (or TomTom) | Cleanest self-serve segment primitive + jam factor, deep probe fleet | `collect_flow --provider here` |
+| **OD travel-time matrix** | **Google** Routes | Best India urban travel-time accuracy (Android/Maps probes) | `build_od(cost_source="google")` |
+| **Flow (default) + incidents** | **TomTom** | Already integrated, free tier, good cross-check | default |
+
+TomTom remains the zero-config default; HERE and Google activate the moment their keys are
+present. All three normalise into the same pipeline (CSV + SQLite + dashboard).
+
+### Set up HERE (segment flow)
+1. Create an account at **platform.here.com**.
+2. **Create a project** → **generate a REST API key** (Access Manager → API Keys).
+3. (Optional) add billing to lift the free-tier caps.
+4. Put it in `.env`: `HERE_API_KEY=...`
+5. Collect with it: `python -m src.data.collect_flow --n 50 --segment peak --provider here`
+
+### Set up Google (OD travel-time matrices)
+1. Go to **console.cloud.google.com** → **create a project** (`mumbai-traffic`).
+2. **Billing** → *Create billing account* → India / INR → add a **credit/debit card** → link it.
+3. **APIs & Services → Library** → enable **Routes API** (and **Roads API** if you want speed limits).
+4. **APIs & Services → Credentials → Create Credentials → API key**.
+5. **Restrict the key**: API restrictions → the enabled APIs; Application restrictions → your server IP.
+6. Put it in `.env`: `GOOGLE_MAPS_API_KEY=...`
+7. Test it: `python -m src.data.google_client matrix --from 19.25,72.86 --to 19.05,72.84`
+8. Use real OD costs in the demand model: `build_od(cost_source="google")` (replaces the
+   synthetic free-flow cost matrix with live traffic-aware zone-to-zone times).
+
+> For research/agency-grade historical segment speeds (the ultimate calibration ground
+> truth), **INRIX** is the gold standard but is enterprise-only — contact their sales team.
 
 ---
 
