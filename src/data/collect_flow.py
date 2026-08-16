@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,6 +30,7 @@ import osmnx as ox
 from shapely.geometry import LineString
 
 from src.data import tomtom_client as tt
+from src.data import segments as seg
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GRAPHML = REPO_ROOT / "data" / "raw" / "osm" / "corridor.graphml"
@@ -73,10 +75,12 @@ def weh_spine_points(n_points: int) -> list[tuple[float, float]]:
     return samples
 
 
-def collect(n_points: int, label: str) -> Path:
+def collect(n_points: int, label: str, segment: str | None = None) -> Path:
     points = weh_spine_points(n_points)
     now_utc = datetime.now(timezone.utc)
     ts = now_utc.astimezone().strftime("%Y%m%d_%H%M")
+    # If not explicitly tagged, record the segment this reading actually falls into.
+    segment = segment or seg.classify(now_utc)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out_path = OUT_DIR / f"flow_{label}_{ts}.csv"
@@ -102,6 +106,7 @@ def collect(n_points: int, label: str) -> Path:
             "confidence": d.get("confidence"),
             "roadClosure": d.get("roadClosure"),
             "label": label,
+            "segment": segment,
             "fetched_utc": now_utc.isoformat(),
         })
         flag = "" if not tti or tti < 1.2 else ("  <-- congested" if tti < 2 else "  <-- SEVERE")
@@ -126,8 +131,29 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Collect TomTom Flow Segment data along WEH.")
     parser.add_argument("--n", type=int, default=50, help="Number of sample points (default 50).")
     parser.add_argument("--label", default="run", help="Session label (e.g. am_peak, pm_peak, evening).")
+    parser.add_argument("--segment", choices=["peak", "avg"], default=None,
+                        help="Tag this reading as a weekday planning segment. Guards against "
+                             "collecting outside the segment's weekday window (override with --force).")
+    parser.add_argument("--force", action="store_true",
+                        help="Collect even if the current time is outside the --segment window.")
     args = parser.parse_args()
-    collect(args.n, args.label)
+
+    label = args.label
+    if args.segment:
+        label = args.label if args.label != "run" else args.segment
+        now = seg.ist_now()
+        actual = seg.classify(now)
+        if actual != args.segment and not args.force:
+            print(f"[collect_flow] Refusing to tag '{args.segment}': it is {now:%a %H:%M} IST, "
+                  f"which is the '{actual}' window, not '{args.segment}'.")
+            print(f"  Expected window: {seg.SEGMENTS[args.segment]['windows_ist']}")
+            print("  Re-run inside the window, or pass --force to record anyway.")
+            sys.exit(1)
+        if actual != args.segment:
+            print(f"[collect_flow] --force: tagging as '{args.segment}' despite "
+                  f"being in the '{actual}' window.")
+
+    collect(args.n, label, segment=args.segment)
 
 
 if __name__ == "__main__":

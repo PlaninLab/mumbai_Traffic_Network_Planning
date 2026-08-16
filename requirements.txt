@@ -24,6 +24,11 @@ mapclassify>=2.6   # required by geopandas .explore() interactive maps
 requests>=2.31
 # googlemaps>=4.10   # only if the Google fallback (plan §3.2) is ever activated
 
+# --- Web hosting (Layer 5+ — dashboard, report, JSON API) ---
+fastapi>=0.110
+uvicorn[standard]>=0.27
+jinja2>=3.1
+
 # --- Notebook environment ---
 jupyterlab>=4.0
 

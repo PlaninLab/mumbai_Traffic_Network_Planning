@@ -1,0 +1,26 @@
+# Mumbai Traffic — weekday segment collection (Linux / hosted server).
+#
+# Install with:   crontab scripts/crontab.example
+# Inspect with:   crontab -l
+#
+# IMPORTANT: cron uses the SERVER's timezone. Set the box to IST so these fire in
+# the intended windows:   sudo timedatectl set-timezone Asia/Kolkata
+# (Or convert the times below to the server's zone.)
+#
+# Fields: minute hour day-of-month month day-of-week  command
+# day-of-week 1-5 = Monday–Friday.
+#
+# Adjust REPO to the deployment path; the venv python collects then rebuilds the
+# segment summary the dashboard serves.
+
+REPO=/opt/mumbai_traffic
+PY=$REPO/.venv/bin/python
+
+# Morning office peak  (09:00 IST, Mon–Fri)
+0 9 * * 1-5  cd $REPO && $PY -m src.data.collect_flow --n 50 --segment peak && $PY -m src.data.segment_summary >> $REPO/data/collect.log 2>&1
+
+# Evening office peak  (18:45 IST, Mon–Fri)
+45 18 * * 1-5 cd $REPO && $PY -m src.data.collect_flow --n 50 --segment peak && $PY -m src.data.segment_summary >> $REPO/data/collect.log 2>&1
+
+# Inter-peak average delay  (14:00 IST, Mon–Fri)
+0 14 * * 1-5 cd $REPO && $PY -m src.data.collect_flow --n 50 --segment avg && $PY -m src.data.segment_summary >> $REPO/data/collect.log 2>&1

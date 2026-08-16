@@ -229,12 +229,23 @@ Effective capacity = nominal capacity × (1 / weighted average PCU based on loca
 
 **Data caching rule:** Every API response is saved to `data/raw/tomtom/` as JSON with a timestamp and the query parameters. Never query the same coordinate + time-of-day twice. The cache IS the dataset — the API is just the collection mechanism.
 
-**Data collection schedule (2,500/day budget):**
-- Day 1-3: Flow Segment Data — ~50 points along WEH during AM peak (8-10 AM), ~50 during PM peak (6-8 PM), ~50 at off-peak (11 PM-1 AM for free-flow validation). Total: ~450 calls over 3 days.
-- Day 4-5: Routing API — 25-30 OD pairs during AM peak and PM peak. Total: ~120 calls.
-- Day 6: Matrix Routing — batch TAZ-to-TAZ travel time matrix (1-2 calls for 10-15 TAZs).
-- Day 7-10: Repeat Day 1-3 on different weekdays to check day-to-day consistency.
-- Total: ~1,000-1,500 calls over ~10 days. Well within free tier.
+**Data collection schedule — two weekday segments (revised, decision D13).**
+Rather than a fixed 10-day cadence, collection is organised around **two weekday
+segments**, each serving a distinct planning purpose, and automated so they fill in on
+their own (`src/data/segments.py`, `src/data/collect_flow.py --segment`):
+
+| Segment | Window (IST, Mon–Fri) | Purpose |
+|---------|----------------------|---------|
+| **Peak** (office hours) | 08:00–11:00 & 17:30–20:30 | Max time-savings potential; congested-circuit identification; **peak-hour OD-matrix calibration** and BPR β calibration (needs the high-congestion signal) |
+| **Average delay** (daytime) | 11:00–17:30 | Everyday "typical delay" baseline; peak-vs-average comparison isolates the *addressable* peak-specific delay |
+
+- ~50 Flow-Segment points per reading along the WEH spine; each run auto-tags its
+  segment and rebuilds `data/processed/segment_overview.json`.
+- Automated Mon–Fri via `scripts/register_weekday_tasks.ps1` (Windows) or
+  `scripts/crontab.example` (Linux host): peak AM (09:00), peak PM (18:45), avg (14:00).
+- Off-peak / weekend / holiday readings are still logged but classified **offpeak** and
+  excluded from the peak/avg planning analysis (they cannot calibrate β — TTI stays flat).
+- Routing / Matrix API for OD travel times as before. Well within the 2,500/day budget.
 
 **Google Maps Platform ToS note (if Google is used later):**
 - DO use Routes/Distance Matrix API programmatically — within ToS.
@@ -503,6 +514,28 @@ Tasks:
     └── Known limitations and next steps
 ```
 
+**Reporting deliverables (built):** per-scenario V/C maps, the all-cases comparison
+chart + montage, the robustness sweep, a comprehensive non-technical README, and a
+self-contained HTML stakeholder report (`docs/report.html`).
+
+**Hosting (Layer 5+, decision D14).** The tool is served by a small read-only FastAPI
+app (`src/web/app.py`) so stakeholders reach it in a browser rather than running Python:
+
+```
+Routes:
+├── /              Live dashboard — the two weekday segments (peak vs average),
+│                  most-congested circuits, and the all-cases scenario table
+├── /report        The full self-contained HTML stakeholder report
+└── /api/*         Read-only JSON — /api/segments, /api/scenarios, /api/health
+```
+
+- Read-only by design: the app never calls TomTom, so the API key is never exposed to
+  the web; data collection stays a separate scheduled job.
+- The dashboard rebuilds from `data/processed/` on each request, so scheduled weekday
+  collections appear automatically.
+- Deploy: `Dockerfile` + `Procfile` (honours `$PORT`); runs locally via
+  `uvicorn src.web.app:app`. See README §7.6.
+
 ---
 
 ## 6. Validation Strategy
@@ -674,6 +707,9 @@ Decisions made during project planning, with rationale preserved.
 | D10 | Fixed demand for baseline, with induced demand flagged as known limitation | Variable demand with elasticity | Correct induced demand modeling requires calibrated demand elasticity, which needs data we don't have yet. Flagging it ensures we don't over-trust intervention benefit estimates. |
 | D11 | Model stopped vehicles as a capacity-reduction factor (effective_area = total_area − N × curve_area), not as microscopic obstacles | Microsimulate each stalled vehicle (SUMO); ignore incidents entirely | A capacity multiplier μ_incident feeds the existing BPR/UE machinery with no new solver — consistent with the static-equilibrium baseline (D9). The `curve_area` term captures rubbernecking turbulence (calibrated to HCM incident tables), which pure lane-subtraction misses. Microsimulation is deferred to a later SUMO phase. |
 | D12 | Report incident impact via corridor through-time + link delay, not TSTT alone; apply incidents over a link stretch | Report network TSTT only; incident on a single 96 m edge | Under static UE, instant perfect rerouting can make network TSTT fall slightly when one link is choked (converse-Braess) — counterintuitive for an incident. Corridor through-time and the affected-link delay always rise, matching physical reality. Applying the incident across a contiguous WEH stretch (not one short segment) prevents trivial bypass. The TSTT paradox is itself flagged as a static-assignment limitation (true dynamics need DTA). |
+| D13 | Collect live data in two weekday segments (peak + average-delay), automated | Fixed 10-day round-the-clock cadence; single unlabelled snapshots | Each segment answers a distinct planning question: peak → max time savings, congested circuits, OD/β calibration; average → the everyday baseline peak is compared against. Weekday windows (`src/data/segments.py`) exclude holiday/off-peak readings that cannot calibrate β (flat TTI). Scheduled jobs fill both segments with no manual effort. |
+| D14 | Host via a read-only FastAPI web app | Ship Python scripts only; a heavier Streamlit/Dash app | A browser dashboard + report + JSON API reaches non-technical stakeholders without them running Python. Read-only keeps the TomTom key off the web (collection stays a separate scheduled job) and makes it trivially deployable (Docker/Procfile, `$PORT`). FastAPI is light and standard vs. a heavier framework. |
+| D15 | Translate incidents into a physical queue via a deterministic (input-output) model, clamping arrival at nominal capacity | Report capacity loss only; a shockwave/LWR queue model | The deterministic triangular queue gives an interpretable "queue is X km / clears in Y min" figure directly from the capacity reduction, consistent with the static baseline. Clamping arrival at nominal capacity isolates the *incident-attributable* queue rather than pre-existing oversaturation; an already-saturated link correctly reports a non-clearing queue. A full shockwave model is deferred to the SUMO phase. |
 
 ## Appendix C: Folder Structure (Proposed)
 

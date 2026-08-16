@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.git/
+.env
+data/raw/tomtom/*/          # cached raw API responses (kept out of the image)
+!data/raw/tomtom/collected/ # keep collected snapshots (small, feed the dashboard)
+data/processed/*.graphml
+data/processed/*.gpkg
+*.ipynb_checkpoints

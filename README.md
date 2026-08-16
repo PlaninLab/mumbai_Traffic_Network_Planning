@@ -181,7 +181,9 @@ mumbai-traffic-tool/
 ├── src/
 │   ├── data/
 │   │   ├── tomtom_client.py       Cached TomTom API client (speeds, routes, matrices)
-│   │   └── collect_flow.py        Sample live speeds along the WEH → a dataset snapshot
+│   │   ├── collect_flow.py        Sample live speeds along the WEH (--segment peak/avg)
+│   │   ├── segments.py            ★ Weekday peak vs average-delay window definitions
+│   │   └── segment_summary.py     Pool readings by segment → congested circuits + JSON
 │   ├── network/                   LAYER 1 — the road model
 │   │   ├── build_network.py       Download the corridor road map from OpenStreetMap
 │   │   ├── enrich_attributes.py   Add lanes, speed, capacity to each road segment
@@ -201,15 +203,23 @@ mumbai-traffic-tool/
 │   │   ├── define_scenario.py     Widen / add / close / place-stalled-vehicle a link
 │   │   ├── evaluate.py            ★ Simulate ALL cases on one demand → comparison table
 │   │   └── robustness.py          Re-run all cases under many settings (sensitivity)
-│   └── viz/                       LAYER 5 — reporting
-│       ├── network_map.py         Congestion maps (live snapshot + V/C per scenario)
-│       └── dashboard.py           Scenario comparison bar charts
+│   ├── viz/                       LAYER 5 — reporting
+│   │   ├── network_map.py         Congestion maps (live snapshot + V/C per scenario)
+│   │   ├── dashboard.py           Scenario comparison bar charts
+│   │   └── report.py              Self-contained HTML stakeholder report
+│   └── web/                       LAYER 5+ — hosting
+│       ├── app.py                 ★ FastAPI app (dashboard + report + JSON API)
+│       └── templates/             Dashboard HTML (Jinja)
 ├── data/
 │   ├── raw/         OpenStreetMap extract, cached TomTom responses + collected snapshots
-│   └── processed/   Enriched network, zones, OD matrix, scenario/robustness results
+│   └── processed/   Enriched network, zones, OD matrix, scenario/robustness, segments
 ├── docs/            Assumptions, data sources, calibration log, all the images above
 ├── scripts/
-│   └── collect_peak.bat           One-click flow collection (for scheduled/manual runs)
+│   ├── collect_peak.bat           One-click flow collection (single ad-hoc run)
+│   ├── collect_segment.bat        Collect a peak/avg segment + refresh the summary
+│   ├── register_weekday_tasks.ps1 Register Mon–Fri Windows Task Scheduler jobs
+│   └── crontab.example            Mon–Fri collection cron for a Linux host
+├── Dockerfile / Procfile          Container + PaaS deploy for the web app
 └── mumbai-traffic-planning-project-plan.md   The full technical plan
 ```
 
@@ -244,6 +254,74 @@ python -m src.demand.calibration           #          fit the curve to TomTom da
 ```
 
 Outputs (tables, maps, charts) land in `data/processed/` and `docs/`.
+
+---
+
+## 7.5 Weekday data collection — two segments
+
+We collect live TomTom speeds in **two distinct weekday segments**, each answering a
+different planning question (defined in [`src/data/segments.py`](src/data/segments.py)):
+
+| Segment | Window (IST, Mon–Fri) | Why we collect it |
+|---------|----------------------|-------------------|
+| **Peak** (office hours) | 08:00–11:00 & 17:30–20:30 | The high-congestion state → **max time-savings potential**, **which circuits are congested**, and the correct demand state to **calibrate the OD matrix** against |
+| **Average delay** (daytime) | 11:00–17:30 | The everyday "typical delay" baseline → comparing peak vs average shows how much delay is *peak-specific* (addressable) vs structural |
+
+Collect a reading manually (the `--segment` flag guards against collecting outside the
+right weekday window; add `--force` to override):
+
+```bash
+python -m src.data.collect_flow --n 50 --segment peak    # during an office peak
+python -m src.data.collect_flow --n 50 --segment avg     # during the inter-peak
+python -m src.data.segment_summary                        # pool → segment_overview.json
+```
+
+**Automate it (recommended)** so both segments fill in on their own:
+
+```bash
+# Windows — register Mon–Fri Task Scheduler jobs (run once, from an admin shell):
+powershell -ExecutionPolicy Bypass -File scripts\register_weekday_tasks.ps1
+# Linux host — install the cron jobs:
+crontab scripts/crontab.example
+```
+
+Each run also rebuilds `data/processed/segment_overview.json`, which the dashboard
+below reads live.
+
+---
+
+## 7.6 Hosting the tool
+
+The tool ships with a small **read-only web app** ([`src/web/app.py`](src/web/app.py),
+FastAPI) that serves a live dashboard, the full stakeholder report, and a JSON API. It
+never calls TomTom, so the API key is never exposed to the web — data collection stays a
+separate scheduled job.
+
+```bash
+# Run locally (http://localhost:8000)
+pip install -r requirements.txt
+uvicorn src.web.app:app --host 0.0.0.0 --port 8000
+```
+
+| Route | What it serves |
+|-------|----------------|
+| `/` | Live dashboard — the two segments, congested circuits, scenario table |
+| `/report` | The full self-contained stakeholder report |
+| `/api/segments` | Segment summary JSON (peak vs average) |
+| `/api/scenarios` | Scenario-comparison JSON (incl. queue lengths) |
+| `/api/health` | Liveness + which outputs are present |
+
+**Deploy with Docker:**
+
+```bash
+docker build -t mumbai-traffic .
+docker run -p 8000:8000 mumbai-traffic          # open http://localhost:8000
+```
+
+**Deploy to a PaaS** (Render / Railway / Fly.io): the repo includes a `Procfile` and
+`Dockerfile`. Point the platform at the repo; it honours `$PORT` automatically. For live
+weekday data on the host, add the cron jobs from `scripts/crontab.example` (set the box to
+`Asia/Kolkata`), and supply `TOMTOM_API_KEY` as an environment variable.
 
 ---
 

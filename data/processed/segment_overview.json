@@ -1,0 +1,77 @@
+{
+  "generated_utc": "2026-08-16T11:23:35.038846+00:00",
+  "congested_tti_threshold": 1.5,
+  "segments": {
+    "peak": {
+      "name": "Peak / office hours",
+      "windows_ist": "Mon\u2013Fri 08:00\u201311:00 & 17:30\u201320:30 IST",
+      "purpose": "Max time-savings potential, congested circuits, OD-matrix calibration",
+      "available": false,
+      "note": "No readings collected in this segment yet."
+    },
+    "avg": {
+      "name": "Average delayed (daytime)",
+      "windows_ist": "Mon\u2013Fri 11:00\u201317:30 IST",
+      "purpose": "Typical everyday delay baseline (compare against peak)",
+      "available": false,
+      "note": "No readings collected in this segment yet."
+    },
+    "offpeak": {
+      "name": "Off-peak / weekend / night",
+      "windows_ist": "Nights, weekends, holidays",
+      "purpose": "Reference only \u2014 excluded from peak/avg planning analysis",
+      "available": true,
+      "n_readings": 3,
+      "n_points": 50,
+      "n_obs": 150,
+      "mean_tti": 1.301,
+      "median_tti": 1.433,
+      "max_tti": 1.545,
+      "mean_current_kph": 31.5,
+      "mean_free_kph": 39.0,
+      "delay_penalty_pct": 30.1,
+      "max_saving_vs_freeflow_pct": 23.1,
+      "congested_points": 7,
+      "worst_circuits": [
+        {
+          "idx": 44,
+          "lat": 19.075,
+          "lon": 72.84,
+          "mean_tti": 1.54,
+          "mean_current_kph": 11.0
+        },
+        {
+          "idx": 43,
+          "lat": 19.078,
+          "lon": 72.843,
+          "mean_tti": 1.54,
+          "mean_current_kph": 11.0
+        },
+        {
+          "idx": 47,
+          "lat": 19.063,
+          "lon": 72.837,
+          "mean_tti": 1.53,
+          "mean_current_kph": 15.0
+        },
+        {
+          "idx": 46,
+          "lat": 19.067,
+          "lon": 72.837,
+          "mean_tti": 1.5,
+          "mean_current_kph": 16.0
+        },
+        {
+          "idx": 4,
+          "lat": 19.25,
+          "lon": 72.867,
+          "mean_tti": 1.5,
+          "mean_current_kph": 10.0
+        }
+      ]
+    }
+  },
+  "peak_vs_avg": {
+    "note": "Need at least one weekday PEAK and one weekday AVG reading to compare."
+  }
+}

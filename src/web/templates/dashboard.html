@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mumbai Traffic — Decision Support</title>
+<style>
+  :root {
+    --bg:#f6f7f9; --card:#ffffff; --ink:#1c2530; --muted:#5b6775;
+    --line:#e3e7ec; --accent:#1f6feb; --good:#12855b; --warn:#c77700; --bad:#c0392b;
+    --shadow:0 1px 3px rgba(0,0,0,.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0e1116; --card:#171b22; --ink:#e6edf3; --muted:#9aa7b4;
+            --line:#2a313b; --accent:#4c8dff; --good:#2ec27e; --warn:#e0a13a; --bad:#e06c5a;
+            --shadow:0 1px 3px rgba(0,0,0,.4); }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  .wrap { max-width:1040px; margin:0 auto; padding:28px 20px 60px; }
+  header h1 { margin:0 0 4px; font-size:1.55rem; }
+  header p { margin:0; color:var(--muted); }
+  .grid { display:grid; gap:16px; }
+  @media (min-width:720px){ .cols-2 { grid-template-columns:1fr 1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px;
+          padding:18px 20px; box-shadow:var(--shadow); }
+  .card h2 { margin:0 0 2px; font-size:1.05rem; }
+  .card .sub { color:var(--muted); font-size:.85rem; margin-bottom:12px; }
+  .hero { background:linear-gradient(135deg,var(--accent),#7a5cff); color:#fff;
+          border:none; }
+  .hero .big { font-size:2.4rem; font-weight:700; line-height:1.1; }
+  .hero .lbl { opacity:.9; font-size:.9rem; }
+  .metrics { display:flex; flex-wrap:wrap; gap:18px; margin-top:6px; }
+  .metric .n { font-size:1.5rem; font-weight:650; }
+  .metric .k { color:var(--muted); font-size:.78rem; text-transform:uppercase;
+               letter-spacing:.03em; }
+  .pill { display:inline-block; padding:2px 9px; border-radius:999px; font-size:.72rem;
+          font-weight:600; }
+  .pill.ok { background:rgba(18,133,91,.15); color:var(--good); }
+  .pill.na { background:rgba(120,120,120,.15); color:var(--muted); }
+  table { width:100%; border-collapse:collapse; font-size:.86rem; }
+  th,td { text-align:left; padding:7px 9px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:600; white-space:nowrap; }
+  td.num,th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .up { color:var(--bad); font-weight:600; } .down { color:var(--good); font-weight:600; }
+  .note { color:var(--muted); font-size:.85rem; }
+  .section-title { margin:30px 0 12px; font-size:1.15rem; }
+  a.btn { display:inline-block; background:var(--accent); color:#fff; text-decoration:none;
+          padding:9px 16px; border-radius:8px; font-weight:600; font-size:.9rem; }
+  a.btn.ghost { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  img.chart { width:100%; border:1px solid var(--line); border-radius:10px; margin-top:8px;
+              background:#fff; }
+  footer { margin-top:40px; color:var(--muted); font-size:.8rem; }
+  code { background:rgba(120,120,120,.14); padding:1px 5px; border-radius:5px; font-size:.85em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Mumbai Traffic — Decision Support</h1>
+    <p>Western Express Highway · Dahisar → Bandra · weekday peak vs average-delay</p>
+  </header>
+
+  {% set segs = segments.get('segments', {} ) %}
+  {% set peak = segs.get('peak', {}) %}
+  {% set avg  = segs.get('avg', {}) %}
+  {% set pva  = segments.get('peak_vs_avg', {}) %}
+
+  <!-- Peak-vs-average hero -->
+  <div class="grid cols-2" style="margin-top:20px;">
+    {% if pva and pva.get('time_saving_peak_to_avg_pct') is not none %}
+    <div class="card hero">
+      <div class="lbl">Max time saving — smoothing peak to average delay</div>
+      <div class="big">{{ pva.time_saving_peak_to_avg_pct }}%</div>
+      <div class="lbl">peak TTI {{ pva.peak_mean_tti }} vs average TTI {{ pva.avg_mean_tti }}
+        &nbsp;·&nbsp; +{{ pva.extra_peak_delay_pct }}% extra peak delay</div>
+    </div>
+    {% else %}
+    <div class="card hero">
+      <div class="lbl">Peak vs average comparison</div>
+      <div class="big">—</div>
+      <div class="lbl">{{ pva.get('note', 'Awaiting weekday peak + average readings.') }}</div>
+    </div>
+    {% endif %}
+
+    {% if peak.get('available') %}
+    <div class="card">
+      <div class="lbl note">Max saving vs free-flow (peak)</div>
+      <div class="metrics">
+        <div class="metric"><div class="n">{{ peak.max_saving_vs_freeflow_pct }}%</div>
+          <div class="k">delay share of trip</div></div>
+        <div class="metric"><div class="n">{{ peak.congested_points }}</div>
+          <div class="k">congested circuits</div></div>
+        <div class="metric"><div class="n">{{ peak.mean_current_kph }}</div>
+          <div class="k">avg kph (free {{ peak.mean_free_kph }})</div></div>
+      </div>
+    </div>
+    {% else %}
+    <div class="card"><div class="note">Peak-hour metrics appear once a weekday
+      peak reading is collected. Schedule it with
+      <code>scripts\register_weekday_tasks.ps1</code>.</div></div>
+    {% endif %}
+  </div>
+
+  <!-- Two segment cards -->
+  <h2 class="section-title">The two weekday segments</h2>
+  <div class="grid cols-2">
+    {% for key, s in [('peak', peak), ('avg', avg)] %}
+    <div class="card">
+      <h2>{{ s.get('name', key) }}
+        {% if s.get('available') %}<span class="pill ok">live</span>
+        {% else %}<span class="pill na">no data yet</span>{% endif %}
+      </h2>
+      <div class="sub">{{ s.get('windows_ist','') }}<br>{{ s.get('purpose','') }}</div>
+      {% if s.get('available') %}
+      <div class="metrics">
+        <div class="metric"><div class="n">{{ s.mean_tti }}</div><div class="k">mean TTI</div></div>
+        <div class="metric"><div class="n">{{ s.max_tti }}</div><div class="k">max TTI</div></div>
+        <div class="metric"><div class="n">{{ s.delay_penalty_pct }}%</div><div class="k">delay penalty</div></div>
+        <div class="metric"><div class="n">{{ s.n_readings }}</div><div class="k">readings</div></div>
+      </div>
+      {% else %}
+      <div class="note">{{ s.get('note', 'Collect a reading in this window to populate.') }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Congested circuits -->
+  {% set showseg = peak if peak.get('available') else (avg if avg.get('available') else segs.get('offpeak', {})) %}
+  {% if showseg.get('available') and showseg.get('worst_circuits') %}
+  <h2 class="section-title">Most congested circuits
+    <span class="note">({{ showseg.name }})</span></h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>Rank</th><th>Circuit (WEH point)</th>
+        <th class="num">Mean TTI</th><th class="num">Avg speed (kph)</th>
+        <th>Location</th></tr></thead>
+      <tbody>
+      {% for c in showseg.worst_circuits %}
+        <tr><td>{{ loop.index }}</td><td>point #{{ c.idx }}</td>
+          <td class="num">{{ c.mean_tti }}</td><td class="num">{{ c.mean_current_kph }}</td>
+          <td class="note">{{ c.lat }}, {{ c.lon }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <div class="note" style="margin-top:8px;">TTI = travel-time index (1.0 = free-flow;
+      2.0 = twice as long). These points feed the peak-hour OD-matrix calibration.</div>
+  </div>
+  {% endif %}
+
+  <!-- Scenario comparison -->
+  {% if scenarios %}
+  <h2 class="section-title">Intervention scenarios — every case</h2>
+  <div class="card" style="overflow-x:auto;">
+    <table>
+      <thead><tr>
+        <th>Case</th><th>What we tested</th>
+        <th class="num">ΔTSTT %</th><th class="num">ΔCorridor %</th>
+        <th class="num">Max V/C</th><th class="num">Queue (km)</th>
+      </tr></thead>
+      <tbody>
+      {% for r in scenarios %}
+        <tr>
+          <td><strong>{{ r.case }}</strong></td>
+          <td class="note">{{ r.description }}</td>
+          <td class="num {% if r.dTSTT_pct and r.dTSTT_pct>0 %}up{% elif r.dTSTT_pct and r.dTSTT_pct<0 %}down{% endif %}">
+            {{ '%+.2f'|format(r.dTSTT_pct) if r.dTSTT_pct is not none else '—' }}</td>
+          <td class="num {% if r.dCorridor_pct and r.dCorridor_pct>0 %}up{% elif r.dCorridor_pct and r.dCorridor_pct<0 %}down{% endif %}">
+            {{ '%+.2f'|format(r.dCorridor_pct) if r.dCorridor_pct is not none else '—' }}</td>
+          <td class="num">{{ r.max_vc }}</td>
+          <td class="num">{{ r.queue_len_km if r.queue_len_km else '—' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <img class="chart" src="/assets/scenario_comparison.png" alt="Scenario comparison chart"
+       onerror="this.style.display='none'">
+  {% endif %}
+
+  <!-- Actions -->
+  <h2 class="section-title">Full outputs</h2>
+  <div style="display:flex; gap:12px; flex-wrap:wrap;">
+    {% if has_report %}<a class="btn" href="/report">Open full stakeholder report →</a>{% endif %}
+    <a class="btn ghost" href="/api/segments">Segments JSON</a>
+    <a class="btn ghost" href="/api/scenarios">Scenarios JSON</a>
+  </div>
+
+  <footer>
+    Static User-Equilibrium model · TomTom live speeds · figures are a working
+    baseline pending weekday peak calibration. Data refreshed on each page load.
+  </footer>
+</div>
+</body>
+</html>
