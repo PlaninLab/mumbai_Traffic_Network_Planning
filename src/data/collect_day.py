@@ -73,8 +73,8 @@ def _print_plan(sched, n, start, end, peak_min, off_min):
           f"points/reading n={n}")
     print(f"[collect_day] Readings: {len(sched)} "
           f"({', '.join(f'{k}:{v}' for k, v in sorted(by_seg.items()))})")
-    print(f"[collect_day] Estimated TomTom calls today: {calls}  "
-          f"(free tier {TOMTOM_DAILY_BUDGET}/day)")
+    print(f"[collect_day] Estimated API calls today: {calls}  "
+          f"(TomTom free tier {TOMTOM_DAILY_BUDGET}/day; HERE tiers differ)")
     if calls > TOMTOM_DAILY_BUDGET:
         over = calls - TOMTOM_DAILY_BUDGET
         safe_n = max(1, TOMTOM_DAILY_BUDGET // max(1, len(sched)))
@@ -84,11 +84,12 @@ def _print_plan(sched, n, start, end, peak_min, off_min):
 
 
 def run_day(n=25, until=None, minutes=None, peak_min=10, off_min=15,
-            dry_run=False) -> None:
+            provider="here", dry_run=False) -> None:
     now = seg.ist_now()
     end = _end_time(now, until, minutes)
     sched = simulate_schedule(now, end, peak_min, off_min)
     _print_plan(sched, n, now, end, peak_min, off_min)
+    print(f"[collect_day] Flow provider: {provider}")
 
     if dry_run:
         print("\n[collect_day] --dry-run: schedule preview only (no API calls).")
@@ -103,7 +104,7 @@ def run_day(n=25, until=None, minutes=None, peak_min=10, off_min=15,
     while seg.ist_now() <= end:
         s = seg.current_segment()
         try:
-            collect_flow.collect(n, label=s, segment=s)
+            collect_flow.collect(n, label=s, segment=s, provider=provider)
             segment_summary.build_summary()   # refresh dashboard data
             count += 1
         except Exception as e:  # noqa: BLE001 — keep the day-long loop alive
@@ -127,12 +128,14 @@ def main() -> None:
     ap.add_argument("--peak-interval", type=int, default=10, help="Peak cadence, minutes (default 10).")
     ap.add_argument("--offpeak-interval", type=int, default=15,
                     help="Off-peak/avg cadence, minutes (default 15).")
+    ap.add_argument("--provider", choices=["here", "tomtom"], default="here",
+                    help="Flow data source (default here; needs HERE_API_KEY).")
     ap.add_argument("--dry-run", action="store_true", help="Preview the schedule; no API calls.")
     args = ap.parse_args()
 
     run_day(n=args.n, until=args.until, minutes=args.minutes,
             peak_min=args.peak_interval, off_min=args.offpeak_interval,
-            dry_run=args.dry_run)
+            provider=args.provider, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":

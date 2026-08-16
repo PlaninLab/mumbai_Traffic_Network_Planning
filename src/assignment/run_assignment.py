@@ -21,13 +21,19 @@ from src.assignment import metrics
 def run_base(beta: float = 2.0, total_pcu: float = TARGET_TOTAL_PCU,
              alpha: float = 0.15, bpr_beta: float = 4.0,
              production_scale=1.0, attraction_scale=1.0, processing_rate=None,
+             cost_source: str = "network", departure_time: str | None = None,
              max_iter: int = 80, tol: float = 0.01, verbose: bool = True):
-    """Return (G, zones, result, link_df) for the base case."""
+    """Return (G, zones, result, link_df) for the base case.
+
+    cost_source: 'network' (free-flow shortest path) or a real traffic-aware provider
+    ('google' / 'tomtom') for the gravity OD cost matrix — needs that provider's key.
+    """
     G = load_enriched_graph()
     zones, _person_T, veh_T, _C = build_od(
         beta=beta, G=G, target_total_pcu=total_pcu,
         production_scale=production_scale, attraction_scale=attraction_scale,
-        processing_rate=processing_rate)
+        processing_rate=processing_rate,
+        cost_source=cost_source, departure_time=departure_time)
     pairs = od_to_pairs(zones, veh_T)
     total = sum(p[2] for p in pairs)
     if verbose:
@@ -42,9 +48,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run base-case UE assignment.")
     parser.add_argument("--beta", type=float, default=2.0)
     parser.add_argument("--total", type=float, default=TARGET_TOTAL_PCU)
+    parser.add_argument("--cost-source", choices=["network", "google", "tomtom"],
+                        default="network",
+                        help="Gravity OD cost matrix source (default network free-flow; "
+                             "'google'/'tomtom' use real traffic-aware travel times).")
     args = parser.parse_args()
 
-    G, zones, res, df = run_base(beta=args.beta, total_pcu=args.total)
+    G, zones, res, df = run_base(beta=args.beta, total_pcu=args.total,
+                                 cost_source=args.cost_source)
     print(f"\nConverged: {res.converged} in {res.iterations} iters "
           f"(final gap {res.gaps[-1]:.4f})")
     print(f"TSTT = {metrics.tstt_hours(res):.1f} PCU-hours")

@@ -132,18 +132,21 @@ def _summarize(label, description, G, result, df, base_tstt, corridor_od=None,
 def run_all_cases(beta: float = 2.0, total_pcu: float = TARGET_TOTAL_PCU,
                   alpha: float = 0.15, bpr_beta: float = 4.0,
                   production_scale=1.0, attraction_scale=1.0, processing_rate=None,
+                  cost_source: str = "network", departure_time: str | None = None,
                   incident_sweep=(1, 2, 3), verbose: bool = True):
     """Simulate every case on fixed demand. Returns (summary_df, cases dict).
 
     BPR (alpha/bpr_beta) and demand robustness params (production_scale,
     attraction_scale, processing_rate) let the whole sweep be re-run under
-    different calibrations / flow regimes.
+    different calibrations / flow regimes. cost_source ('network'/'google'/'tomtom')
+    selects the gravity OD cost matrix (real traffic-aware costs need a provider key).
     """
     G0 = load_enriched_graph()
     zones, _pT, veh_T, _C = build_od(
         beta=beta, G=G0, target_total_pcu=total_pcu,
         production_scale=production_scale, attraction_scale=attraction_scale,
-        processing_rate=processing_rate)
+        processing_rate=processing_rate,
+        cost_source=cost_source, departure_time=departure_time)
     pairs = od_to_pairs(zones, veh_T)  # fixed demand across all scenarios
 
     def _run(H):
@@ -213,10 +216,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Simulate all scenario cases and compare.")
     parser.add_argument("--beta", type=float, default=2.0)
     parser.add_argument("--total", type=float, default=TARGET_TOTAL_PCU)
+    parser.add_argument("--cost-source", choices=["network", "google", "tomtom"],
+                        default="network",
+                        help="Gravity OD cost matrix source (default network free-flow; "
+                             "'google'/'tomtom' use real traffic-aware travel times).")
     parser.add_argument("--no-maps", action="store_true", help="Skip rendering V/C maps.")
     args = parser.parse_args()
 
-    summary_df, cases, target = run_all_cases(beta=args.beta, total_pcu=args.total)
+    summary_df, cases, target = run_all_cases(beta=args.beta, total_pcu=args.total,
+                                              cost_source=args.cost_source)
 
     pd.set_option("display.width", 200, "display.max_columns", 20)
     print("\n===== ALL-CASES COMPARISON =====")

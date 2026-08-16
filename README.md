@@ -383,8 +383,17 @@ present. All three normalise into the same pipeline (CSV + SQLite + dashboard).
 5. **Restrict the key**: API restrictions → the enabled APIs; Application restrictions → your server IP.
 6. Put it in `.env`: `GOOGLE_MAPS_API_KEY=...`
 7. Test it: `python -m src.data.google_client matrix --from 19.25,72.86 --to 19.05,72.84`
-8. Use real OD costs in the demand model: `build_od(cost_source="google")` (replaces the
-   synthetic free-flow cost matrix with live traffic-aware zone-to-zone times).
+8. Use real OD costs in the demand model — from the CLI:
+   ```bash
+   python -m src.assignment.run_assignment --cost-source google   # base case on real OD
+   python -m src.scenarios.evaluate --cost-source google          # all scenarios on real OD
+   ```
+   (or `build_od(cost_source="google")` in code — replaces the synthetic free-flow cost matrix
+   with live traffic-aware zone-to-zone times). The full-day collector `collect_day` uses
+   **HERE** by default (`--provider tomtom` to switch).
+
+> **Running it day to day?** See the **[operations runbook](docs/OPERATIONS.md)** — how to start
+> the collector, when to switch it off and how, and how to run the dashboard.
 
 > For research/agency-grade historical segment speeds (the ultimate calibration ground
 > truth), **INRIX** is the gold standard but is enterprise-only — contact their sales team.
