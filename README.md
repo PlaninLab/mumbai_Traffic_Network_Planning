@@ -182,6 +182,8 @@ mumbai-traffic-tool/
 │   ├── data/
 │   │   ├── tomtom_client.py       Cached TomTom API client (speeds, routes, matrices)
 │   │   ├── collect_flow.py        Sample live speeds along the WEH (--segment peak/avg)
+│   │   ├── collect_day.py         ★ Full-day loop: 10-min peak / 15-min off-peak
+│   │   ├── store.py               ★ Tabular SQLite store (flow_readings table)
 │   │   ├── segments.py            ★ Weekday peak vs average-delay window definitions
 │   │   └── segment_summary.py     Pool readings by segment → congested circuits + JSON
 │   ├── network/                   LAYER 1 — the road model
@@ -217,7 +219,8 @@ mumbai-traffic-tool/
 ├── scripts/
 │   ├── collect_peak.bat           One-click flow collection (single ad-hoc run)
 │   ├── collect_segment.bat        Collect a peak/avg segment + refresh the summary
-│   ├── register_weekday_tasks.ps1 Register Mon–Fri Windows Task Scheduler jobs
+│   ├── collect_day.bat            Full-day adaptive-interval collection
+│   ├── register_weekday_tasks.ps1 Register Mon–Fri Windows tasks (-FullDay option)
 │   └── crontab.example            Mon–Fri collection cron for a Linux host
 ├── Dockerfile / Procfile          Container + PaaS deploy for the web app
 └── mumbai-traffic-planning-project-plan.md   The full technical plan
@@ -276,17 +279,39 @@ python -m src.data.collect_flow --n 50 --segment avg     # during the inter-peak
 python -m src.data.segment_summary                        # pool → segment_overview.json
 ```
 
-**Automate it (recommended)** so both segments fill in on their own:
+**Full-day sampling** — instead of a few fixed readings, sample the whole day at a
+segment-adaptive cadence: **every 10 min during peak windows, every 15 min otherwise**.
+It prints the daily TomTom-call estimate up front and warns if you'd exceed the free
+tier (2,500/day):
 
 ```bash
-# Windows — register Mon–Fri Task Scheduler jobs (run once, from an admin shell):
+python -m src.data.collect_day --dry-run          # preview the schedule + call budget
+python -m src.data.collect_day --n 25 --until 23:00
+```
+
+**Tabular (SQL) storage.** Every reading is written to a single SQLite table
+(`data/processed/traffic.db`, `flow_readings`) so the data is queryable like a database,
+not scattered across CSVs. Inserts are idempotent (`UNIQUE(run_id, idx)`).
+
+```bash
+python -m src.data.store --info                    # row / per-segment counts
+python -m src.data.store --backfill                # import any legacy CSVs
+python -m src.data.store --export readings.csv     # dump the whole table
+# or query directly:  sqlite3 data/processed/traffic.db "SELECT segment,COUNT(*) FROM flow_readings GROUP BY segment;"
+```
+
+**Automate it (recommended)** so the segments fill in on their own:
+
+```bash
+# Windows — fixed 3-readings/day, or -FullDay for the adaptive 10/15-min loop:
 powershell -ExecutionPolicy Bypass -File scripts\register_weekday_tasks.ps1
-# Linux host — install the cron jobs:
+powershell -ExecutionPolicy Bypass -File scripts\register_weekday_tasks.ps1 -FullDay
+# Linux host — install the cron jobs (Option A fixed / B full-day / C interval):
 crontab scripts/crontab.example
 ```
 
-Each run also rebuilds `data/processed/segment_overview.json`, which the dashboard
-below reads live.
+Each run writes to the DB and rebuilds `data/processed/segment_overview.json`, which the
+dashboard below reads live.
 
 ---
 

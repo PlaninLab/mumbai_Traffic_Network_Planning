@@ -31,6 +31,7 @@ from shapely.geometry import LineString
 
 from src.data import tomtom_client as tt
 from src.data import segments as seg
+from src.data import store
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GRAPHML = REPO_ROOT / "data" / "raw" / "osm" / "corridor.graphml"
@@ -117,10 +118,15 @@ def collect(n_points: int, label: str, segment: str | None = None) -> Path:
         writer.writeheader()
         writer.writerows(rows)
 
+    # Also persist to the tabular SQLite store (run_id matches the CSV stem).
+    run_id = f"{label}_{ts}"
+    inserted = store.insert_readings(rows, run_id)
+
     # Quick corridor summary.
     ttis = [r["tti"] for r in rows if r["tti"]]
     if ttis:
         print(f"\n[collect_flow] {len(rows)} points collected -> {out_path}")
+        print(f"  Stored {inserted} rows in {store.DB_PATH.name} (run_id={run_id})")
         print(f"  Mean TTI: {sum(ttis)/len(ttis):.2f}   Max TTI: {max(ttis):.2f}")
         congested = [r for r in rows if r["tti"] and r["tti"] >= 1.5]
         print(f"  Congested points (TTI>=1.5): {len(congested)}")

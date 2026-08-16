@@ -1,26 +1,40 @@
-# Mumbai Traffic — weekday segment collection (Linux / hosted server).
+# Mumbai Traffic — weekday collection (Linux / hosted server).
 #
 # Install with:   crontab scripts/crontab.example
 # Inspect with:   crontab -l
 #
-# IMPORTANT: cron uses the SERVER's timezone. Set the box to IST so these fire in
-# the intended windows:   sudo timedatectl set-timezone Asia/Kolkata
-# (Or convert the times below to the server's zone.)
+# IMPORTANT: cron uses the SERVER's timezone. Set the box to IST so the windows
+# line up:   sudo timedatectl set-timezone Asia/Kolkata
 #
 # Fields: minute hour day-of-month month day-of-week  command
 # day-of-week 1-5 = Monday–Friday.
 #
-# Adjust REPO to the deployment path; the venv python collects then rebuilds the
-# segment summary the dashboard serves.
+# Every reading writes to the SQLite store (data/processed/traffic.db) and the
+# summary the dashboard serves. Pick ONE option below.
 
 REPO=/opt/mumbai_traffic
 PY=$REPO/.venv/bin/python
 
-# Morning office peak  (09:00 IST, Mon–Fri)
-0 9 * * 1-5  cd $REPO && $PY -m src.data.collect_flow --n 50 --segment peak && $PY -m src.data.segment_summary >> $REPO/data/collect.log 2>&1
-
-# Evening office peak  (18:45 IST, Mon–Fri)
+# ============================================================================
+# OPTION A — three fixed segment readings per weekday (lightest on the API).
+# ============================================================================
+# Morning office peak (09:00), evening office peak (18:45), inter-peak avg (14:00).
+0 9  * * 1-5  cd $REPO && $PY -m src.data.collect_flow --n 50 --segment peak && $PY -m src.data.segment_summary >> $REPO/data/collect.log 2>&1
 45 18 * * 1-5 cd $REPO && $PY -m src.data.collect_flow --n 50 --segment peak && $PY -m src.data.segment_summary >> $REPO/data/collect.log 2>&1
+0 14 * * 1-5  cd $REPO && $PY -m src.data.collect_flow --n 50 --segment avg  && $PY -m src.data.segment_summary >> $REPO/data/collect.log 2>&1
 
-# Inter-peak average delay  (14:00 IST, Mon–Fri)
-0 14 * * 1-5 cd $REPO && $PY -m src.data.collect_flow --n 50 --segment avg && $PY -m src.data.segment_summary >> $REPO/data/collect.log 2>&1
+# ============================================================================
+# OPTION B — full-day adaptive loop: one launch at 06:00, then the process
+# self-schedules readings every 10 min in peak windows / 15 min otherwise,
+# until 23:00. (Comment out Option A above if you use this.)
+# Preview the daily API-call estimate first:  $PY -m src.data.collect_day --dry-run
+# ============================================================================
+# 0 6 * * 1-5  cd $REPO && $PY -m src.data.collect_day --n 25 --until 23:00 >> $REPO/data/collect.log 2>&1
+
+# ============================================================================
+# OPTION C — pure-cron interval sampling (no long-running process). Every 10 min
+# during peak hours, every 15 min otherwise; the collector auto-tags the segment.
+# Keep the hour sets DISJOINT so a reading is not taken twice.
+# ============================================================================
+# */10 8-10,18-20   * * 1-5 cd $REPO && $PY -m src.data.collect_flow --n 25 && $PY -m src.data.segment_summary >> $REPO/data/collect.log 2>&1
+# */15 6-7,11-17,21-22 * * 1-5 cd $REPO && $PY -m src.data.collect_flow --n 25 && $PY -m src.data.segment_summary >> $REPO/data/collect.log 2>&1

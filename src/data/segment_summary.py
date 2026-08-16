@@ -28,6 +28,7 @@ from pathlib import Path
 import pandas as pd
 
 from src.data import segments as seg
+from src.data import store
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COLLECTED_DIR = REPO_ROOT / "data" / "raw" / "tomtom" / "collected"
@@ -37,19 +38,27 @@ CONGESTED_TTI = 1.5   # a point at/above this is "congested"
 
 
 def _load_all() -> pd.DataFrame:
-    files = sorted(glob.glob(str(COLLECTED_DIR / "flow_*.csv")))
-    if not files:
-        raise FileNotFoundError(
-            "No collected flow CSVs — run src.data.collect_flow (or collect_segment) first.")
-    frames = []
-    for f in files:
-        df = pd.read_csv(f)
-        df["source_file"] = Path(f).name
-        frames.append(df)
-    obs = pd.concat(frames, ignore_index=True)
+    """Load all readings — from the SQLite store if populated, else pooled CSVs."""
+    if store.has_data():
+        obs = store.load_readings_df().rename(columns={
+            "current_speed_kph": "currentSpeed_kph",
+            "free_speed_kph": "freeFlowSpeed_kph",
+            "run_id": "source_file",   # so n_readings = distinct runs
+        })
+    else:
+        files = sorted(glob.glob(str(COLLECTED_DIR / "flow_*.csv")))
+        if not files:
+            raise FileNotFoundError(
+                "No readings — run src.data.collect_flow (or collect_segment) first.")
+        frames = []
+        for f in files:
+            df = pd.read_csv(f)
+            df["source_file"] = Path(f).name
+            frames.append(df)
+        obs = pd.concat(frames, ignore_index=True)
+
     obs = obs[obs["tti"].notna() & (obs["tti"] > 0)].copy()
-    # Prefer a per-row timestamp; fall back to a 'segment' column if the collector
-    # already tagged it, else classify from fetched_utc.
+    # Ensure a segment tag: keep an existing one, else classify from fetched_utc.
     if "segment" in obs.columns and obs["segment"].notna().any():
         obs["segment"] = obs["segment"].fillna(
             obs["fetched_utc"].map(seg.classify_utc_iso))

@@ -247,6 +247,19 @@ their own (`src/data/segments.py`, `src/data/collect_flow.py --segment`):
   excluded from the peak/avg planning analysis (they cannot calibrate β — TTI stays flat).
 - Routing / Matrix API for OD travel times as before. Well within the 2,500/day budget.
 
+**Full-day sampling option (decision D16).** For finer temporal resolution,
+`src/data/collect_day.py` samples the whole day at a **segment-adaptive cadence — 10 min
+in peak windows, 15 min otherwise** — printing the estimated daily API-call count and
+warning before the 2,500/day free tier is exceeded (full-day n=50 ≈ 4,050 calls → use
+n≈25). A fixed 3-readings/day schedule remains the light-touch default.
+
+**Tabular storage (decision D16).** All readings are written to a single SQLite table
+(`data/processed/traffic.db`, `flow_readings`) via `src/data/store.py`, so the observed
+data is queryable with SQL rather than scattered across per-run CSVs. Inserts are
+idempotent (`UNIQUE(run_id, idx)`); the segment summary reads from the DB (CSV fallback),
+while per-run CSVs are still written for calibration input and human inspection. Legacy
+CSVs import with `store --backfill`.
+
 **Google Maps Platform ToS note (if Google is used later):**
 - DO use Routes/Distance Matrix API programmatically — within ToS.
 - DO NOT scrape traffic layer tile images — violates ToS.
@@ -710,6 +723,7 @@ Decisions made during project planning, with rationale preserved.
 | D13 | Collect live data in two weekday segments (peak + average-delay), automated | Fixed 10-day round-the-clock cadence; single unlabelled snapshots | Each segment answers a distinct planning question: peak → max time savings, congested circuits, OD/β calibration; average → the everyday baseline peak is compared against. Weekday windows (`src/data/segments.py`) exclude holiday/off-peak readings that cannot calibrate β (flat TTI). Scheduled jobs fill both segments with no manual effort. |
 | D14 | Host via a read-only FastAPI web app | Ship Python scripts only; a heavier Streamlit/Dash app | A browser dashboard + report + JSON API reaches non-technical stakeholders without them running Python. Read-only keeps the TomTom key off the web (collection stays a separate scheduled job) and makes it trivially deployable (Docker/Procfile, `$PORT`). FastAPI is light and standard vs. a heavier framework. |
 | D15 | Translate incidents into a physical queue via a deterministic (input-output) model, clamping arrival at nominal capacity | Report capacity loss only; a shockwave/LWR queue model | The deterministic triangular queue gives an interpretable "queue is X km / clears in Y min" figure directly from the capacity reduction, consistent with the static baseline. Clamping arrival at nominal capacity isolates the *incident-attributable* queue rather than pre-existing oversaturation; an already-saturated link correctly reports a non-clearing queue. A full shockwave model is deferred to the SUMO phase. |
+| D16 | Store readings in a tabular SQLite DB; offer full-day 10/15-min adaptive sampling | Keep per-run CSVs only; a fixed uniform interval; a client-server DB (Postgres) | SQLite is a zero-dependency single-file SQL store — queryable, idempotent (`UNIQUE(run_id, idx)`), and openable in any SQL tool — without running a DB server. Segment-adaptive cadence (10 min peak / 15 min off-peak) spends finer resolution where congestion actually changes; the built-in daily-call estimate keeps collection inside the 2,500/day TomTom budget. CSVs remain as a human-readable export + fallback. |
 
 ## Appendix C: Folder Structure (Proposed)
 

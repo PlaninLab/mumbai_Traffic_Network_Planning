@@ -29,6 +29,11 @@ data/raw/tomtom/collected/*
 *.graphml
 *.gpkg
 
+# --- SQLite reading store (binary; reproducible via `python -m src.data.store --backfill`) ---
+*.db
+*.sqlite
+*.sqlite3
+
 # --- osmnx / tooling caches ---
 cache/
 .claude/settings.local.json
