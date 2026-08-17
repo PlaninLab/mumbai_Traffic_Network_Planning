@@ -193,7 +193,62 @@ ask satellite to do the transient-incident job the flow data already does.
 
 ---
 
-## 9. Bottom line
+## 9. Best-accuracy path for road WIDTH and EFFECTIVE width
+
+This is the highest-value use of imagery for us, because capacity is driven by width and our
+lane counts are ~84% guessed. What gives the best accuracy, ranked:
+
+| Source | GSD | Width accuracy | Scales to 2,003 junctions? | Verdict here |
+|--------|-----|----------------|----------------------------|--------------|
+| Drone / UAV orthomosaic | 3–8 cm | ±0.1 m (best) | ❌ manual, small area | **Blocked** — WEH hugs the airport; DGCA no-fly. Skip. |
+| Manned aerial ortho | 10–25 cm | ±0.2 m | ⚠️ if a survey exists | Use only if a dataset already exists |
+| **Sub-metre satellite** (Airbus Pléiades Neo / Maxar 0.3 m; Planet SkySat 0.5 m) | 0.3–0.5 m | **±0.5–1 m** | ✅ wide-area archive | **Best achievable at scale — recommended** |
+| Google Earth Pro (manual ruler) | ~0.15–0.5 m | ±0.5 m | ⚠️ manual, but free | **Best free win NOW** for the junctions that matter |
+| Sentinel‑2 (free) | 10 m | ±10 m | ✅ | Too coarse for width |
+
+**Decision: sub-metre optical satellite (0.3 m) + segmentation, calibrated against manual Google
+Earth Pro measurements.** At 0.3 m, a carriageway edge is 1–3 px, so total paved width measures
+to ~±1 m — enough to fix lane counts and get capacity within ~10%.
+
+### How we get width and effective width from it
+1. **Total width** — segment the paved road surface (SAM / a road-segmentation model), then sample
+   **perpendicular transects** along the OSM centreline at, say, every 20 m; the paved extent on each
+   transect is the width. Output a width *profile* per link, not one number.
+2. **Effective width (static)** — on the same frame, segment on-road obstructions (parked-vehicle
+   rows, encroachment, debris, waterlogging). `effective_width = total_width − obstructed_width` per
+   transect. This is exactly our `effective_area = total_area − N·curve_area`, but **measured** instead
+   of assumed — the `0.85` encroachment fudge factor becomes a real number per link.
+3. **Effective width (dynamic)** — a single overpass (~10:30 AM) can't see PM-peak double-parking, so
+   the satellite gives the **static** reduction only. Fuse it with the **dynamic** reduction from the
+   live flow data (`observed_queue.py` / TTI) to get time-varying effective width.
+
+   ```
+   effective_width(t) = total_width(satellite)
+                        − static_obstruction(satellite)      # permanent narrowing/encroachment
+                        − dynamic_obstruction(flow data, t)   # peak-hour parking/incidents
+   capacity(link, t) ∝ effective_width(t)      # replaces guessed lanes × 0.85
+   ```
+
+### The plan to follow NOW (sequenced by value ÷ effort)
+- **Phase 0 — this week, free, do first.** Manually measure **total carriageway width** at the
+  junctions that matter (WEH corridor + highest-flow tracked junctions) with the Google Earth Pro
+  ruler; store `measured_width_m` per link/junction. This alone replaces guessed lanes with real
+  capacity — the single biggest accuracy win available right now, no procurement needed.
+- **Phase 1 — width at scale.** Procure sub-metre archive imagery for the corridor + junction AOIs;
+  build the transect width-profile extractor (OSM centreline → perpendicular transects →
+  road-surface segmentation). Output total width per link, validated against the Phase-0 ground truth.
+- **Phase 2 — static effective width.** Segment on-road obstructions on the same imagery → static
+  `effective_width` and `μ_static` per link, attached to junction `id`s.
+- **Phase 3 — fuse dynamic.** Combine `μ_static` (imagery) with `μ_dynamic` (flow / observed queue)
+  → time-varying effective capacity feeding assignment and scenarios.
+- **Phase 4 — validate & recalibrate** width error against ground truth; report accuracy.
+
+**Bottom line on width:** yes — sub-metre satellite gives total width to ~±1 m and static effective
+width from the same frame; dynamic effective width comes from the flow data you're already collecting.
+But **start free**: measure the key junctions in Google Earth Pro this week and wire measured width
+into capacity before buying anything.
+
+## 10. Bottom line
 
 - **Feasible and valuable** for *persistent* obstruction/encroachment/flooding → junction capacity,
   attached to the junctions you already track, validated against your traffic history.
