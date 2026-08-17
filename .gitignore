@@ -49,3 +49,6 @@ Thumbs.db
 
 # --- Jupyter ---
 *.ipynb_checkpoints
+
+# BMC scale-up: keep the large reproducible link-flow dump out of git
+data/processed/bmc/bmc_link_flows.csv

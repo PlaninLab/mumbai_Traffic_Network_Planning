@@ -1,0 +1,132 @@
+{
+ "generated_utc": "2026-08-17T18:36:52.293081+00:00",
+ "scope": "bmc",
+ "grid": 8,
+ "n_zones": 37,
+ "n_nodes": 3940,
+ "n_links": 6922,
+ "network_km": 1369.5,
+ "converged": true,
+ "iterations": 2,
+ "tstt_pcu_h": 9385.5,
+ "target_total_pcu": 60000.0,
+ "max_vc": 2.75,
+ "mean_vc": 0.22,
+ "links_over_cap": 32,
+ "n_junctions": 867,
+ "junctions_by_source": {
+  "model": 867
+ },
+ "worst_junctions": [
+  {
+   "junction_id": "osm-junction-245664760",
+   "name": "Bandra Kurla Complex Road \u00d7 Sealink Road \u00d7 Sion Bandra Link Road",
+   "lat": 19.053547,
+   "lon": 72.846899,
+   "graph_node": 1647344926,
+   "volume_pcu_h": 4106.3,
+   "max_approach_vc": 1.342,
+   "queue_len_km": 4.024,
+   "source": "model"
+  },
+  {
+   "junction_id": "osm-junction-245664695",
+   "name": "BKC - Sealink Road \u00d7 BKC Flyover \u00d7 Sealink Road",
+   "lat": 19.052368,
+   "lon": 72.844628,
+   "graph_node": 245664695,
+   "volume_pcu_h": 2463.4,
+   "max_approach_vc": 1.136,
+   "queue_len_km": 1.774,
+   "source": "model"
+  },
+  {
+   "junction_id": "osm-junction-245661185",
+   "name": "N C Kelkar Marg \u00d7 Tilak Bridge \u00d7 Tilak Road",
+   "lat": 19.021315,
+   "lon": 72.842432,
+   "graph_node": 245661185,
+   "volume_pcu_h": 3172.6,
+   "max_approach_vc": 1.037,
+   "queue_len_km": 0.433,
+   "source": "model"
+  },
+  {
+   "junction_id": "osm-junction-1232644427",
+   "name": "Amar Mahal Junction Flyover \u00d7 Eastern Express Highway",
+   "lat": 19.067336,
+   "lon": 72.902118,
+   "graph_node": 5349392408,
+   "volume_pcu_h": 3414.8,
+   "max_approach_vc": 1.002,
+   "queue_len_km": 0.02,
+   "source": "model"
+  },
+  {
+   "junction_id": "osm-junction-5349392408",
+   "name": "Santa Cruz \u2013 Chembur Link Road Flyover \u00d7 Santa Cruz \u2013 Chembur Link Road Flyover Ramp",
+   "lat": 19.067276,
+   "lon": 72.902194,
+   "graph_node": 5349392408,
+   "volume_pcu_h": 3414.8,
+   "max_approach_vc": 1.002,
+   "queue_len_km": 0.02,
+   "source": "model"
+  },
+  {
+   "junction_id": "osm-junction-296853793",
+   "name": "Avenue 3 \u00d7 Bandra Kurla Complex Road",
+   "lat": 19.060453,
+   "lon": 72.858694,
+   "graph_node": 2897024523,
+   "volume_pcu_h": 4806.8,
+   "max_approach_vc": 0.945,
+   "queue_len_km": 0.0,
+   "source": "model"
+  },
+  {
+   "junction_id": "osm-junction-1650694511",
+   "name": "King's Circle \u00d7 Laxmibai Kelkar Marg",
+   "lat": 19.027217,
+   "lon": 72.855771,
+   "graph_node": 1650694545,
+   "volume_pcu_h": 4556.7,
+   "max_approach_vc": 0.94,
+   "queue_len_km": 0.0,
+   "source": "model"
+  },
+  {
+   "junction_id": "osm-junction-245661730",
+   "name": "Dr Babasaheb Ambedkar Marg (Vincent Road) \u00d7 King's Circle",
+   "lat": 19.026522,
+   "lon": 72.854967,
+   "graph_node": 245661730,
+   "volume_pcu_h": 4446.2,
+   "max_approach_vc": 0.918,
+   "queue_len_km": 0.0,
+   "source": "model"
+  },
+  {
+   "junction_id": "osm-junction-2258304482",
+   "name": "Eastern Express Highway \u00d7 King's Circle Flyover \u00d7 Laxmibai Kelkar Marg",
+   "lat": 19.028139,
+   "lon": 72.856701,
+   "graph_node": 2258304482,
+   "volume_pcu_h": 1946.1,
+   "max_approach_vc": 0.914,
+   "queue_len_km": 0.0,
+   "source": "model"
+  },
+  {
+   "junction_id": "osm-junction-1179314485",
+   "name": "Eastern Express Highway \u00d7 King's Circle Flyover \u00d7 Laxmibai Kelkar Marg",
+   "lat": 19.030982,
+   "lon": 72.858135,
+   "graph_node": 2258304493,
+   "volume_pcu_h": 2251.2,
+   "max_approach_vc": 0.897,
+   "queue_len_km": 0.0,
+   "source": "model"
+  }
+ ]
+}

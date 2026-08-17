@@ -161,10 +161,13 @@ def main() -> None:
     parser.add_argument("--drop-secondary", dest="keep_secondary", action="store_false",
                         help="Drop secondary roads for a leaner network.")
     parser.add_argument("--tag", default="corridor", help="Output filename tag.")
+    parser.add_argument("--input", default=str(RAW_GRAPHML),
+                        help="Raw graphml to enrich (default the corridor extract).")
     args = parser.parse_args()
 
-    print(f"[enrich] Loading raw graph: {RAW_GRAPHML}")
-    G = ox.load_graphml(RAW_GRAPHML)
+    raw_path = Path(args.input)
+    print(f"[enrich] Loading raw graph: {raw_path}")
+    G = ox.load_graphml(raw_path)
     print(f"[enrich] Raw: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
 
     Gm = filter_major(G, keep_secondary=args.keep_secondary)
