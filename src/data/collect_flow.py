@@ -110,114 +110,135 @@ def collect(n_points: int, label: str, segment: str | None = None,
             f"{latch['latch_reason']}. Resume it before collecting again.",
             kind="latched")
 
-    # Reserve the whole sweep against the monthly cap BEFORE doing any work —
-    # before the graph load, before the first request. A sweep that dies partway
-    # keeps its reservation, which is what bounds a restart loop (see budget.py).
+    # Build the sample points BEFORE reserving anything. Loading the graph makes
+    # no API call, so a reservation held across it can only leak: a deployment
+    # that shipped without scikit-learn made ox.nearest_nodes raise here, on the
+    # line after the reservation, and every 15-minute slot charged 16 calls that
+    # were never sent — no incident, no rows, nothing to see. The reservation
+    # exists to bound SPENDING, and nothing below this line can spend.
+    points = weh_spine_points(n_points)
+
+    # Reserve the whole sweep against the monthly cap before the first request.
+    # A sweep that dies partway keeps its reservation, which is what bounds a
+    # restart loop (see budget.py); the refunds below give back the remainder.
     limit = budget.resolve_limit(provider, max_calls_month)
     reserved = budget.reserve(provider, n_points, limit)   # raises BudgetExhausted
     if limit:
         print(f"[collect_flow] Budget: {reserved:,}/{limit:,} {provider} calls used "
               f"this month ({limit - reserved:,} left).")
 
-    points = weh_spine_points(n_points)
     now_utc = datetime.now(timezone.utc)
     ts = now_utc.astimezone().strftime("%Y%m%d_%H%M")
     # If not explicitly tagged, record the segment this reading actually falls into.
     segment = segment or seg.classify(now_utc)
 
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = OUT_DIR / f"flow_{label}_{ts}.csv"
-
-    rows = []
+    # Everything from here on runs with calls RESERVED, so any exit that is not
+    # a handled provider abort must give back what was never sent. Without this
+    # net, one unexpected failure per slot silently keeps a whole sweep's worth
+    # of budget — which is exactly how a missing scikit-learn burned 16 calls
+    # every 15 minutes with nothing recorded anywhere.
+    rows: list[dict] = []
     issued = 0          # requests actually sent — what we are willing to pay for
     provider_fails = 0  # consecutive provider-level failures
-    print(f"[collect_flow] Sampling {n_points} points along WEH ({label}, provider={provider}) ...")
-    for i, (lat, lon) in enumerate(points):
-        point = f"{lat:.5f},{lon:.5f}"
-        try:
-            cur, free, conf, rc = _flow_reading(provider, lat, lon)
-            issued += 1
-            provider_fails = 0
-        except incidents.ProviderError as e:
-            # The provider itself is refusing or unreachable. Hammering the
-            # remaining points cannot help and spends the cap, so stop the sweep.
-            # Only count what the provider actually received. A request that
-            # never left this machine (no route, no key) is not billable and
-            # must go back to the monthly cap — see incidents.UNSENT_KINDS.
-            issued += 0 if e.kind in incidents.UNSENT_KINDS else 1
-            provider_fails += 1
-            print(f"  [{i:>2}] {point}  {e.kind.upper()}: {e}")
-            if e.kind in incidents.ABORT_IMMEDIATELY or \
-                    provider_fails >= incidents.ABORT_AFTER_CONSECUTIVE:
-                budget.refund(provider, max(0, n_points - issued))
-                state = incidents.record(provider, e, requests_issued=issued,
-                                         failed_calls=provider_fails,
-                                         latch_after=latch_after)
-                tail = (f"; STOPPED — {state['latch_reason']}" if state["latched"]
-                        else f"; holding {state['hold_minutes']} min "
-                             f"(failure #{state['consecutive']})")
-                raise incidents.ProviderError(
-                    f"{e} — aborted after {issued} of {n_points} requests{tail}",
-                    kind=e.kind, status=e.status, evidence=e.evidence) from e
-            continue
-        except Exception as e:  # noqa: BLE001 — one bad point, not a bad provider
-            issued += 1
-            print(f"  [{i:>2}] {point}  ERROR: {e}")
-            continue
-        if request_pause and i + 1 < n_points:
-            time.sleep(request_pause)
-        tti = (free / cur) if cur else None  # travel-time index: >1 means slower than free-flow
-        rows.append({
-            "idx": i,
-            "lat": lat,
-            "lon": lon,
-            "currentSpeed_kph": cur,
-            "freeFlowSpeed_kph": free,
-            "tti": round(tti, 3) if tti else None,
-            "confidence": conf,
-            "roadClosure": rc,
-            "provider": provider,
-            "label": label,
-            "segment": segment,
-            "fetched_utc": now_utc.isoformat(),
-        })
-        flag = "" if not tti or tti < 1.2 else ("  <-- congested" if tti < 2 else "  <-- SEVERE")
-        print(f"  [{i:>2}] {point}  cur={cur} free={free} TTI={tti and round(tti,2)}{flag}")
+    try:
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        out_path = OUT_DIR / f"flow_{label}_{ts}.csv"
 
-    if not rows:
-        # Every point failed without tripping the provider-abort rule. Give back
-        # what was never sent and say so plainly, rather than raising IndexError
-        # off rows[0] and leaving the real cause unreported.
+        print(f"[collect_flow] Sampling {n_points} points along WEH ({label}, provider={provider}) ...")
+        for i, (lat, lon) in enumerate(points):
+            point = f"{lat:.5f},{lon:.5f}"
+            try:
+                cur, free, conf, rc = _flow_reading(provider, lat, lon)
+                issued += 1
+                provider_fails = 0
+            except incidents.ProviderError as e:
+                # The provider itself is refusing or unreachable. Hammering the
+                # remaining points cannot help and spends the cap, so stop the sweep.
+                # Only count what the provider actually received. A request that
+                # never left this machine (no route, no key) is not billable and
+                # must go back to the monthly cap — see incidents.UNSENT_KINDS.
+                issued += 0 if e.kind in incidents.UNSENT_KINDS else 1
+                provider_fails += 1
+                print(f"  [{i:>2}] {point}  {e.kind.upper()}: {e}")
+                if e.kind in incidents.ABORT_IMMEDIATELY or \
+                        provider_fails >= incidents.ABORT_AFTER_CONSECUTIVE:
+                    budget.refund(provider, max(0, n_points - issued))
+                    state = incidents.record(provider, e, requests_issued=issued,
+                                             failed_calls=provider_fails,
+                                             latch_after=latch_after)
+                    tail = (f"; STOPPED — {state['latch_reason']}" if state["latched"]
+                            else f"; holding {state['hold_minutes']} min "
+                                 f"(failure #{state['consecutive']})")
+                    raise incidents.ProviderError(
+                        f"{e} — aborted after {issued} of {n_points} requests{tail}",
+                        kind=e.kind, status=e.status, evidence=e.evidence) from e
+                continue
+            except Exception as e:  # noqa: BLE001 — one bad point, not a bad provider
+                issued += 1
+                print(f"  [{i:>2}] {point}  ERROR: {e}")
+                continue
+            if request_pause and i + 1 < n_points:
+                time.sleep(request_pause)
+            tti = (free / cur) if cur else None  # travel-time index: >1 means slower than free-flow
+            rows.append({
+                "idx": i,
+                "lat": lat,
+                "lon": lon,
+                "currentSpeed_kph": cur,
+                "freeFlowSpeed_kph": free,
+                "tti": round(tti, 3) if tti else None,
+                "confidence": conf,
+                "roadClosure": rc,
+                "provider": provider,
+                "label": label,
+                "segment": segment,
+                "fetched_utc": now_utc.isoformat(),
+            })
+            flag = "" if not tti or tti < 1.2 else ("  <-- congested" if tti < 2 else "  <-- SEVERE")
+            print(f"  [{i:>2}] {point}  cur={cur} free={free} TTI={tti and round(tti,2)}{flag}")
+
+        if not rows:
+            # Every point failed without tripping the provider-abort rule. Give back
+            # what was never sent and say so plainly, rather than raising IndexError
+            # off rows[0] and leaving the real cause unreported.
+            budget.refund(provider, max(0, n_points - issued))
+            err = incidents.ProviderError(
+                f"{provider}: {n_points} points attempted, none returned usable data.",
+                kind="other")
+            incidents.record(provider, err, requests_issued=issued,
+                             failed_calls=n_points, latch_after=latch_after)
+            raise err
+
+        with out_path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(rows)
+
+        # Also persist to the tabular SQLite store (run_id matches the CSV stem).
+        run_id = f"{label}_{ts}"
+        inserted = store.insert_readings(rows, run_id)
+        # A sweep that produced rows means the provider is healthy — clear any hold.
+        incidents.record_success(provider)
+        if issued < n_points:
+            budget.refund(provider, n_points - issued)
+
+        # Quick corridor summary.
+        ttis = [r["tti"] for r in rows if r["tti"]]
+        if ttis:
+            print(f"\n[collect_flow] {len(rows)} points collected -> {out_path}")
+            print(f"  Stored {inserted} rows in {store.DB_PATH.name} (run_id={run_id})")
+            print(f"  Mean TTI: {sum(ttis)/len(ttis):.2f}   Max TTI: {max(ttis):.2f}")
+            congested = [r for r in rows if r["tti"] and r["tti"] >= 1.5]
+            print(f"  Congested points (TTI>=1.5): {len(congested)}")
+        return out_path
+    except incidents.ProviderError:
+        # Already refunded and recorded by the handlers above — re-raise as is.
+        raise
+    except BaseException:
+        # A disk error writing the CSV, a store failure, a missing dependency in
+        # weh_spine_points's wake, an interrupt: none of them sent a request.
         budget.refund(provider, max(0, n_points - issued))
-        err = incidents.ProviderError(
-            f"{provider}: {n_points} points attempted, none returned usable data.",
-            kind="other")
-        incidents.record(provider, err, requests_issued=issued,
-                         failed_calls=n_points, latch_after=latch_after)
-        raise err
-
-    with out_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-        writer.writeheader()
-        writer.writerows(rows)
-
-    # Also persist to the tabular SQLite store (run_id matches the CSV stem).
-    run_id = f"{label}_{ts}"
-    inserted = store.insert_readings(rows, run_id)
-    # A sweep that produced rows means the provider is healthy — clear any hold.
-    incidents.record_success(provider)
-    if issued < n_points:
-        budget.refund(provider, n_points - issued)
-
-    # Quick corridor summary.
-    ttis = [r["tti"] for r in rows if r["tti"]]
-    if ttis:
-        print(f"\n[collect_flow] {len(rows)} points collected -> {out_path}")
-        print(f"  Stored {inserted} rows in {store.DB_PATH.name} (run_id={run_id})")
-        print(f"  Mean TTI: {sum(ttis)/len(ttis):.2f}   Max TTI: {max(ttis):.2f}")
-        congested = [r for r in rows if r["tti"] and r["tti"] >= 1.5]
-        print(f"  Congested points (TTI>=1.5): {len(congested)}")
-    return out_path
+        raise
 
 
 def main() -> None:
