@@ -1,0 +1,43 @@
+# Mumbai Traffic Network Planning — dependencies for the DEPLOYED containers.
+#
+# The server runs exactly two commands:
+#   uvicorn src.web.app:app          (dashboard, report, JSON API)
+#   python -m src.data.collect_day   (the metered collection loop)
+#
+# This file is requirements.txt minus what neither of them imports. Keep it that
+# way: every package below is imported by something under src/, so the modelling
+# commands (calibration, scenarios, report) still run on the server if needed.
+#
+# WHY IT IS SEPARATE. The build host reaches PyPI at roughly 200 kB/s, and both
+# compose services build the same image at the same time, so every megabyte in
+# this file is paid for twice and slowly. Removing JupyterLab (61 distributions)
+# and folium/mapclassify (which drags in scikit-learn) takes about 175 MB of
+# installed weight out of the image without changing what the containers can do.
+#
+# requirements.txt stays the DEVELOPMENT set — it keeps JupyterLab and the
+# interactive-map extras for notebook work. Add a package to BOTH files when the
+# server needs it.
+
+# --- Network construction & graph operations ---
+osmnx>=2.0
+networkx>=3.2
+
+# --- Geospatial ---
+geopandas>=1.0
+shapely>=2.0
+
+# --- Numeric / scientific ---
+numpy>=1.26
+scipy>=1.11
+pandas>=2.1
+
+# --- Charts for the generated report ---
+matplotlib>=3.8
+
+# --- API interaction (HERE Traffic v7 flow; TomTom fallback) ---
+requests>=2.31
+
+# --- Web hosting (dashboard, report, JSON API) ---
+fastapi>=0.110
+uvicorn[standard]>=0.27
+jinja2>=3.1

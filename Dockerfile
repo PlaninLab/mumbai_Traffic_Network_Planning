@@ -11,8 +11,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Install deps first for layer caching.
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+#
+# requirements-server.txt, not requirements.txt: the containers never open a
+# notebook, and JupyterLab alone is 61 distributions. See that file for what is
+# left out and why.
+#
+# --only-binary=:all: refuses to build any package from source. The build host
+# downloads at about 200 kB/s, so a single silent source build costs more than
+# the rest of the image; failing in seconds is better than compiling for ten
+# minutes. It also makes the apt layer above measurable — if this succeeds,
+# nothing needed a compiler or a system header, and those packages can go.
+COPY requirements-server.txt .
+RUN pip install --no-cache-dir --only-binary=:all: -r requirements-server.txt
 
 # App code + precomputed outputs (docs/, data/processed/).
 COPY . .

@@ -3,8 +3,13 @@ __pycache__/
 *.pyc
 .git/
 .env
-data/raw/tomtom/*/          # cached raw API responses (kept out of the image)
-!data/raw/tomtom/collected/ # keep collected snapshots (small, feed the dashboard)
+# A comment must own its line. Docker does not strip a trailing one, so
+# "data/raw/tomtom/*/   # keep out of the image" was read as a literal pattern
+# with the comment text inside it, and matched nothing.
+# Cached raw API responses stay out of the image...
+data/raw/tomtom/*/
+# ...but the collected snapshots are small and feed the dashboard.
+!data/raw/tomtom/collected/
 data/processed/*.graphml
 data/processed/*.gpkg
 *.db

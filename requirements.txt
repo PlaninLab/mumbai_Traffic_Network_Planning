@@ -1,5 +1,9 @@
-# Mumbai Traffic Network Planning — Baseline dependencies
+# Mumbai Traffic Network Planning — DEVELOPMENT dependencies
 # Python 3.11+ (developed on 3.12)
+#
+# The deployed containers install requirements-server.txt instead, which is this
+# list minus JupyterLab and the interactive-map extras. Add a package to BOTH
+# files when the server needs it.
 
 # --- Network construction & graph operations ---
 osmnx>=2.0
