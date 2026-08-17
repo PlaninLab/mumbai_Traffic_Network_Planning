@@ -1,0 +1,65 @@
+# Mumbai Traffic Network Planning — deployment topology.
+#
+# Two containers from the ONE image (Dockerfile), sharing two named volumes:
+#
+#   web        read-only dashboard + report + JSON API. Holds no API key: the
+#              app never calls a paid provider, so the public-facing container
+#              has nothing to leak.
+#   collector  the metered process. Samples the WEH every 15 min by day and
+#              hourly overnight, writes the SQLite store, refreshes the summary.
+#
+# The volumes are the only shared state. Both must mount BOTH: the collector
+# writes traffic.db and segment_overview.json, and the web service reads them.
+#
+# Secrets come from the platform's env, never from this file — ${HERE_API_KEY}
+# interpolates at deploy time from the project's environment variables.
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8100:8000"
+    environment:
+      TZ: Asia/Kolkata
+      # Read-only view of the same counter the collector writes, so /data and
+      # /api/health can report usage against the cap.
+      HERE_MONTHLY_CALL_LIMIT: ${HERE_MONTHLY_CALL_LIMIT:-38000}
+    volumes:
+      - traffic-data:/app/data/processed
+      - traffic-csv:/app/data/raw/tomtom/collected
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  collector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Kolkata
+      HERE_API_KEY: ${HERE_API_KEY}
+      # Hard stop on metered calls. The count lives in traffic.db on the volume,
+      # so it survives the restarts this policy causes. See src/data/budget.py.
+      HERE_MONTHLY_CALL_LIMIT: ${HERE_MONTHLY_CALL_LIMIT:-38000}
+    volumes:
+      - traffic-data:/app/data/processed
+      - traffic-csv:/app/data/raw/tomtom/collected
+    # --until MUST stay explicit. Omitted, _end_time() returns 23:59 today and
+    # never rolls forward, so a restart inside that minute exits immediately and
+    # `unless-stopped` spins. Passing it takes the branch that adds a day.
+    command: "python -m src.data.collect_day --n 16 --provider here --peak-interval 15 --offpeak-interval 15 --night-interval 60 --until 23:59"
+
+volumes:
+  traffic-data:
+  traffic-csv:
