@@ -230,10 +230,18 @@ to ~±1 m — enough to fix lane counts and get capacity within ~10%.
    ```
 
 ### The plan to follow NOW (sequenced by value ÷ effort)
-- **Phase 0 — this week, free, do first.** Manually measure **total carriageway width** at the
-  junctions that matter (WEH corridor + highest-flow tracked junctions) with the Google Earth Pro
-  ruler; store `measured_width_m` per link/junction. This alone replaces guessed lanes with real
-  capacity — the single biggest accuracy win available right now, no procurement needed.
+- **Phase 0 — this week, free, do first. ✅ tooling built** (`src/network/road_width.py`).
+  Manually measure **total carriageway width** at the junctions that matter with the Google Earth
+  Pro ruler; this replaces guessed lanes with real capacity — the biggest accuracy win available
+  now, no procurement. Workflow:
+  ```bash
+  python -m src.network.road_width --worklist        # priority junctions -> data/measurements/road_widths_template.csv
+  # measure in Google Earth Pro; fill measured_total_width_m (+ measured_effective_width_m); save as road_widths.csv
+  python -m src.network.road_width --apply           # override capacity from measured width
+  # (re-running enrich_attributes now picks up measurements automatically)
+  ```
+  Capacity becomes `(effective_width_m / 3.5 m) × per-lane PCU`, with a measured encroachment
+  factor replacing the flat 0.85. A distance guard skips measurements outside the current graph.
 - **Phase 1 — width at scale.** Procure sub-metre archive imagery for the corridor + junction AOIs;
   build the transect width-profile extractor (OSM centreline → perpendicular transects →
   road-surface segmentation). Output total width per link, validated against the Phase-0 ground truth.

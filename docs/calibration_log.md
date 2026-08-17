@@ -34,6 +34,15 @@ against, and the resulting fit. Empty until Phase 2–3 (demand + assignment cal
 
 ## Log
 
+- **2026-08-17 — Phase 0 measured-width capacity (`src/network/road_width.py`).** Added
+  width→capacity plumbing so link capacity can come from MEASURED carriageway width instead of
+  guessed lanes × 0.85. `capacity = (effective_width_m / 3.5) × per-lane PCU`; the encroachment
+  factor becomes `effective_width / total_width` (measured) rather than the flat 0.85.
+  `--worklist` emits the priority junctions to measure (WEH + high-class BMC first) from the
+  coverage inventory; measurements in `data/measurements/road_widths.csv` are applied to the
+  nearest corridor edge (≤250 m guard) and flow into `enrich_attributes` automatically. Awaiting
+  the Google Earth Pro measurement pass to populate real widths.
+
 - **2026-08-17 — CTS demand controls and gravity calibration.** Scaled the 11 synthetic
   locality allocations to the MMRDA CTSU 2026 Western Suburbs controls (6.01 million
   population and 2.89 million employment). Replaced the fixed gravity exponent with a

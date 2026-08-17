@@ -171,6 +171,18 @@ def main() -> None:
     print(f"[enrich] Major subgraph: {Gm.number_of_nodes()} nodes, {Gm.number_of_edges()} edges")
 
     enrich(Gm)
+
+    # Phase 0: override capacity from measured road widths where available
+    # (no-op until data/measurements/road_widths.csv has rows). See road_width.py.
+    try:
+        from src.network import road_width
+        applied = road_width.apply_if_available(Gm)
+        if applied.get("applied"):
+            print(f"[enrich] Measured widths applied to {applied['applied']} link(s) "
+                  f"-> capacity from effective width, not guessed lanes")
+    except Exception as e:  # noqa: BLE001 — measured-width override must never break enrich
+        print(f"[enrich] measured-width override skipped: {e}")
+
     summarize(Gm)
 
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
