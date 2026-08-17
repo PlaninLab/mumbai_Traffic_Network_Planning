@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e1116" media="(prefers-color-scheme: dark)">
+<title>Glossary — Mumbai Traffic</title>
+<style>
+  :root {
+    color-scheme:light dark;
+    --bg:#f6f7f9; --card:#ffffff; --ink:#1c2530; --muted:#5b6775;
+    --line:#e3e7ec; --accent:#1f6feb; --shadow:0 1px 3px rgba(0,0,0,.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0e1116; --card:#171b22; --ink:#e6edf3; --muted:#9aa7b4;
+            --line:#2a313b; --accent:#4c8dff; --shadow:0 1px 3px rgba(0,0,0,.4); }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  .wrap { max-width:860px; margin:0 auto; padding:28px 20px 60px; }
+  header h1 { margin:0 0 4px; font-size:1.55rem; letter-spacing:-.01em; }
+  header p { max-width:58ch; margin:0; color:var(--muted); }
+  .nav { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+  .btn { display:inline-block; color:var(--accent); text-decoration:none; padding:8px 14px;
+         border:1px solid var(--accent); border-radius:8px; font-weight:600; font-size:.9rem; }
+  .btn:hover { background:color-mix(in srgb, var(--accent) 9%, transparent); }
+  .btn:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+  .section-title { margin:30px 0 12px; font-size:1.05rem; }
+  .sheet { background:var(--card); border:1px solid var(--line); border-radius:12px;
+           padding:4px 20px; box-shadow:var(--shadow); }
+  dl { margin:0; columns:2 320px; column-gap:36px; }
+  .entry { break-inside:avoid; padding:13px 0 14px; border-bottom:1px solid var(--line); }
+  dt { font-weight:700; font-variant-numeric:tabular-nums; }
+  dd { margin:3px 0 0; color:var(--muted); font-size:.9rem; }
+  .formula { white-space:nowrap; }
+  footer { margin-top:32px; color:var(--muted); font-size:.8rem; }
+  @media (max-width:480px) {
+    .wrap { padding-top:20px; }
+    .sheet { padding-inline:16px; }
+  }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header>
+    <h1>Glossary</h1>
+    <p>Plain-language meanings for abbreviations, labels, and units used across the dashboard, corridor map, data page, and report.</p>
+    <nav class="nav" aria-label="Glossary navigation">
+      <a class="btn" href="/">← Dashboard</a>
+      <a class="btn" href="/map">Corridor map</a>
+      <a class="btn" href="/data">Collected data</a>
+    </nav>
+  </header>
+
+  <h2 class="section-title">Abbreviations</h2>
+  <div class="sheet">
+    <dl>
+      <div class="entry">
+        <dt>API</dt>
+        <dd>Application Programming Interface — the connection used to retrieve traffic data from a provider.</dd>
+      </div>
+      <div class="entry">
+        <dt>AM / PM</dt>
+        <dd>Before noon / after noon — the 12-hour clock labels used for collection windows in the report.</dd>
+      </div>
+      <div class="entry">
+        <dt>Avg</dt>
+        <dd>Average — the mean of a set of readings or values.</dd>
+      </div>
+      <div class="entry">
+        <dt>BMC</dt>
+        <dd>Brihanmumbai Municipal Corporation — the municipal area shown by the city map scope.</dd>
+      </div>
+      <div class="entry">
+        <dt>BPR</dt>
+        <dd>Bureau of Public Roads — the standard congestion curve used to estimate how travel time rises as a road fills.</dd>
+      </div>
+      <div class="entry">
+        <dt>EST.</dt>
+        <dd>Estimated — calculated from stated assumptions rather than directly measured.</dd>
+      </div>
+      <div class="entry">
+        <dt>HERE</dt>
+        <dd>The name of a traffic-data provider. It appears in capitals but is not an abbreviation.</dd>
+      </div>
+      <div class="entry">
+        <dt>HTTP</dt>
+        <dd>Hypertext Transfer Protocol — the web protocol used for requests to a data provider.</dd>
+      </div>
+      <div class="entry">
+        <dt>ID</dt>
+        <dd>Identifier — a unique reference used to trace a reading, junction, or provider request.</dd>
+      </div>
+      <div class="entry">
+        <dt>IST</dt>
+        <dd>Indian Standard Time — the local time zone used for collection windows, <span class="formula">UTC+5:30</span>.</dd>
+      </div>
+      <div class="entry">
+        <dt>JSON</dt>
+        <dd>JavaScript Object Notation — a structured text format used by the downloadable data endpoints.</dd>
+      </div>
+      <div class="entry">
+        <dt>M</dt>
+        <dd>Measured — read from live probe or provider data, not produced by the traffic model.</dd>
+      </div>
+      <div class="entry">
+        <dt>MMRDA</dt>
+        <dd>Mumbai Metropolitan Region Development Authority — the wider metropolitan map scope.</dd>
+      </div>
+      <div class="entry">
+        <dt>MOD</dt>
+        <dd>Modeled — calculated from demand, the road network, and the traffic-assignment model.</dd>
+      </div>
+      <div class="entry">
+        <dt>obs</dt>
+        <dd>Observations — individual traffic samples stored from collected readings.</dd>
+      </div>
+      <div class="entry">
+        <dt>OD</dt>
+        <dd>Origin–Destination — a trip or traffic flow from one locality to another.</dd>
+      </div>
+      <div class="entry">
+        <dt>OSM</dt>
+        <dd>OpenStreetMap — the open map source used for roads and intersections.</dd>
+      </div>
+      <div class="entry">
+        <dt>PCU</dt>
+        <dd>Passenger Car Unit — a common scale for mixed traffic. A car is 1 PCU; larger and smaller vehicles count proportionally.</dd>
+      </div>
+      <div class="entry">
+        <dt>SLO</dt>
+        <dd>Service-Level Objective — the provider reliability or response target used to classify an outage.</dd>
+      </div>
+      <div class="entry">
+        <dt>TSTT</dt>
+        <dd>Total System Travel Time — the combined travel time of every trip in the modeled network.</dd>
+      </div>
+      <div class="entry">
+        <dt>TTI</dt>
+        <dd>Travel Time Index — current travel time divided by free-flow travel time. 1.0 means no delay; 2.0 means twice as long.</dd>
+      </div>
+      <div class="entry">
+        <dt>UE</dt>
+        <dd>User Equilibrium — the modeled state where no driver can save time by changing routes.</dd>
+      </div>
+      <div class="entry">
+        <dt>UTC</dt>
+        <dd>Coordinated Universal Time — the common reference time used in system and provider records.</dd>
+      </div>
+      <div class="entry">
+        <dt>V/C</dt>
+        <dd>Volume-to-capacity ratio — traffic demand divided by road capacity. Above 1.0, vehicles arrive faster than the road can serve them.</dd>
+      </div>
+      <div class="entry">
+        <dt>WEH</dt>
+        <dd>Western Express Highway — the Dahisar-to-Bandra corridor modeled by this tool.</dd>
+      </div>
+    </dl>
+  </div>
+
+  <h2 class="section-title">Symbols, labels, and units</h2>
+  <div class="sheet">
+    <dl>
+      <div class="entry">
+        <dt>Δ</dt>
+        <dd>Delta, meaning change from the baseline. For travel time, a negative value is an improvement and a positive value is worse.</dd>
+      </div>
+      <div class="entry">
+        <dt>Δ Corridor</dt>
+        <dd>Percentage change in total travel time on the selected corridor compared with the baseline.</dd>
+      </div>
+      <div class="entry">
+        <dt>Δ TSTT</dt>
+        <dd>Percentage change in Total System Travel Time across the whole modeled network compared with the baseline.</dd>
+      </div>
+      <div class="entry">
+        <dt>2D / 3D</dt>
+        <dd>Two-dimensional or three-dimensional map view.</dd>
+      </div>
+      <div class="entry">
+        <dt>cap</dt>
+        <dd>Capacity — the maximum traffic flow a road or approach can serve.</dd>
+      </div>
+      <div class="entry">
+        <dt>h / day</dt>
+        <dd>Hours per day — used for the number of peak-equivalent traffic hours in a day.</dd>
+      </div>
+      <div class="entry">
+        <dt>km</dt>
+        <dd>Kilometres — the unit used for corridor and queue length.</dd>
+      </div>
+      <div class="entry">
+        <dt>kph</dt>
+        <dd>Kilometres per hour — the unit used for vehicle speed.</dd>
+      </div>
+      <div class="entry">
+        <dt>m</dt>
+        <dd>Metres — the unit used for shorter queue lengths on the map.</dd>
+      </div>
+      <div class="entry">
+        <dt>min</dt>
+        <dd>Minutes — the unit used for trip duration.</dd>
+      </div>
+      <div class="entry">
+        <dt>PCU/h</dt>
+        <dd>Passenger Car Units per hour — the rate of traffic passing or arriving in one hour.</dd>
+      </div>
+      <div class="entry">
+        <dt>PCU-h</dt>
+        <dd>Passenger Car Unit-hours — a measure of combined vehicle time, such as congestion delay accumulated in one peak hour.</dd>
+      </div>
+      <div class="entry">
+        <dt>person-h</dt>
+        <dd>Person-hours — the combined time spent by all people, used when valuing congestion delay.</dd>
+      </div>
+      <div class="entry">
+        <dt>veh</dt>
+        <dd>Vehicles — a count of cars, buses, motorcycles, trucks, and other road traffic.</dd>
+      </div>
+      <div class="entry">
+        <dt>veh/km/lane</dt>
+        <dd>Vehicles per kilometre per lane — the density used to convert queued vehicles into a physical queue length.</dd>
+      </div>
+      <div class="entry">
+        <dt>yr</dt>
+        <dd>Year — used in annual congestion-cost assumptions.</dd>
+      </div>
+    </dl>
+  </div>
+
+  <footer>Definitions reflect the labels currently used in the Mumbai Traffic Network Planning interface.</footer>
+</main>
+</body>
+</html>

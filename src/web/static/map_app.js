@@ -716,6 +716,7 @@
       '    <button type="button" class="scope-segment" data-scope="mmrda" aria-label="Show MMRDA area" aria-pressed="true">MMRDA</button>' +
       "  </div>" +
       (window.__MAP_DATA__ ? "" : '  <a href="/">Dashboard</a>') +
+      (window.__MAP_DATA__ ? "" : '  <a href="/glossary">Glossary</a>') +
       '  <button type="button" class="btn" id="btn3d">2D view</button>' +
       '  <button type="button" class="btn" id="btncine">Cinematic</button>' +
       "</div>" +

@@ -101,6 +101,11 @@ def corridor_map(request: Request):
     return templates.TemplateResponse(request, "map.html", {})
 
 
+@app.get("/glossary", response_class=HTMLResponse)
+def glossary(request: Request):
+    return templates.TemplateResponse(request, "glossary.html", {})
+
+
 # Payload names the map API may serve — a fixed allowlist, never the raw path.
 # ``coverage`` is the real OSM major-road/junction inventory for the nested BMC
 # and MMRDA views. It deliberately contains no inferred traffic observations.
