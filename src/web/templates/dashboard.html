@@ -122,6 +122,10 @@
         <div class="metric"><div class="n">{{ s.mean_tti }}</div><div class="k">mean TTI</div></div>
         <div class="metric"><div class="n">{{ s.max_tti }}</div><div class="k">max TTI</div></div>
         <div class="metric"><div class="n">{{ s.delay_penalty_pct }}%</div><div class="k">delay penalty</div></div>
+        {% if s.get('observed_queue', {}).get('available') %}
+        <div class="metric"><div class="n">{{ s.observed_queue.max_jam_km }}</div>
+          <div class="k">longest jam km (obs)</div></div>
+        {% endif %}
         <div class="metric"><div class="n">{{ s.n_readings }}</div><div class="k">readings</div></div>
       </div>
       {% else %}
@@ -151,6 +155,29 @@
     </table>
     <div class="note" style="margin-top:8px;">TTI = travel-time index (1.0 = free-flow;
       2.0 = twice as long). These points feed the peak-hour OD-matrix calibration.</div>
+  </div>
+  {% endif %}
+
+  <!-- Observed queue / jam length (measured from live speeds) -->
+  {% set oq = showseg.get('observed_queue', {}) if showseg else {} %}
+  {% if oq.get('available') %}
+  <h2 class="section-title">Observed queue length
+    <span class="note">(measured from live speeds — {{ showseg.name }})</span></h2>
+  <div class="card">
+    <div class="metrics">
+      <div class="metric"><div class="n">{{ oq.max_jam_km }} km</div>
+        <div class="k">longest jam (worst reading)</div></div>
+      <div class="metric"><div class="n">{{ oq.mean_jam_km }} km</div>
+        <div class="k">longest jam (avg reading)</div></div>
+      <div class="metric"><div class="n">{{ oq.mean_congested_km }} km</div>
+        <div class="k">orange+red total</div></div>
+      <div class="metric"><div class="n">{{ oq.mean_severe_km }} km</div>
+        <div class="k">red (severe) total</div></div>
+    </div>
+    <div class="note" style="margin-top:8px;">The physical length of the congested
+      (orange, TTI&nbsp;≥&nbsp;1.5) and severe (red, TTI&nbsp;≥&nbsp;2) corridor, measured
+      directly from the {{ oq.n_readings }} live reading(s) — not modelled. The
+      <em>longest contiguous</em> congested stretch is the real queue.</div>
   </div>
   {% endif %}
 

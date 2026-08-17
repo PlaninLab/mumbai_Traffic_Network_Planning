@@ -29,6 +29,7 @@ import pandas as pd
 
 from src.data import segments as seg
 from src.data import store
+from src.data import observed_queue as obsq
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COLLECTED_DIR = REPO_ROOT / "data" / "raw" / "tomtom" / "collected"
@@ -120,6 +121,10 @@ def build_summary() -> dict:
         "congested_tti_threshold": CONGESTED_TTI,
         "segments": {},
     }
+    # Observed (measured-from-live-speeds) jam length per segment — the physical
+    # length of the orange+red congested corridor, independent of the model.
+    obs_queue = obsq.by_segment(obs)
+
     seg_stats = {}
     for s in ("peak", "avg", "offpeak"):
         obs_s = obs[obs["segment"] == s]
@@ -132,7 +137,8 @@ def build_summary() -> dict:
         pts.to_csv(PROCESSED_DIR / f"segment_{s}_points.csv", index=False)
         stats = _segment_stats(obs_s, pts)
         seg_stats[s] = stats
-        out["segments"][s] = {**meta, "available": True, **stats}
+        out["segments"][s] = {**meta, "available": True, **stats,
+                              "observed_queue": obs_queue.get(s, {"available": False})}
 
     # Peak-vs-average comparison: how much of peak delay is peak-specific, i.e. the
     # time saving achievable by smoothing peak down to the average-delayed state.
@@ -174,6 +180,11 @@ def main() -> None:
         print(f"  mean speed={d['mean_current_kph']} kph (free {d['mean_free_kph']})  "
               f"delay penalty={d['delay_penalty_pct']}%")
         print(f"  max saving vs free-flow={d['max_saving_vs_freeflow_pct']}%")
+        oq = d.get("observed_queue", {})
+        if oq.get("available"):
+            print(f"  observed jam (from live speeds): longest mean {oq['mean_jam_km']} km "
+                  f"/ max {oq['max_jam_km']} km; orange+red {oq['mean_congested_km']} km "
+                  f"(red {oq['mean_severe_km']} km)")
         if d["worst_circuits"]:
             worst = ", ".join(f"idx{c['idx']}(TTI{c['mean_tti']})" for c in d["worst_circuits"])
             print(f"  worst circuits: {worst}")

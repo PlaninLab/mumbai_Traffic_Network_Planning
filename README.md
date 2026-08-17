@@ -135,6 +135,13 @@ for N = 1 → 3. Because this stretch is already at capacity in the peak, the mo
 reports the queue as *non-clearing* until peak demand subsides — a direct signal that the
 corridor has no spare capacity to absorb even a single breakdown.
 
+Alongside that *modelled* queue, we also measure the **observed queue** directly from the live
+speeds ([`src/data/observed_queue.py`](src/data/observed_queue.py)): walking the WEH sample
+points in order, the physical length of the **orange (TTI ≥ 1.5) + red (TTI ≥ 2)** stretch — and
+the *longest contiguous* congested run — is the real queue on the road right now, no model
+involved. It appears on the dashboard next to the modelled figure; the two answer different
+questions ("how long a queue *would* a breakdown cause" vs. "how long is the jam *actually*").
+
 ### Robustness: do the conclusions survive uncertainty?
 Our demand and speed numbers are approximate, so we re-ran **all cases under 5 different
 settings** (different congestion assumptions, higher/lower traffic, capacity caps). The
@@ -188,7 +195,8 @@ mumbai-traffic-tool/
 │   │   ├── collect_day.py         ★ Full-day loop: 10-min peak / 15-min off-peak
 │   │   ├── store.py               ★ Tabular SQLite store (flow_readings table)
 │   │   ├── segments.py            ★ Weekday peak vs average-delay window definitions
-│   │   └── segment_summary.py     Pool readings by segment → congested circuits + JSON
+│   │   ├── segment_summary.py     Pool readings by segment → congested circuits + JSON
+│   │   └── observed_queue.py      ★ Measured jam length from live speeds (orange+red)
 │   ├── network/                   LAYER 1 — the road model
 │   │   ├── build_network.py       Download the corridor road map from OpenStreetMap
 │   │   ├── enrich_attributes.py   Add lanes, speed, capacity to each road segment
