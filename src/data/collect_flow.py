@@ -79,12 +79,20 @@ def weh_spine_points(n_points: int) -> list[tuple[float, float]]:
 
 def _flow_reading(provider: str, lat: float, lon: float):
     """Return (current_kph, free_kph, confidence, road_closure) from the chosen
-    provider, normalised so the rest of the pipeline is provider-agnostic."""
+    provider, normalised so the rest of the pipeline is provider-agnostic.
+
+    use_cache=False is REQUIRED here. The provider cache identity is the sample
+    POINT only (lat/lon[/radius]) with no time component, so a cached read would
+    replay the first response for that point at every later reading — a full day
+    of collection would then record one frozen speed per point. The raw response
+    is still archived to data/raw/<provider>/, and every reading is kept in the
+    per-run CSV and the SQLite store, so nothing is lost by skipping the read.
+    """
     if provider == "here":
-        r = here_client.flow_point(lat, lon)
+        r = here_client.flow_point(lat, lon, use_cache=False)
         return r["current_kph"], r["free_kph"], r.get("confidence"), r.get("road_closure")
     # default: TomTom Flow Segment
-    d = tt.flow_segment(f"{lat:.5f},{lon:.5f}")
+    d = tt.flow_segment(f"{lat:.5f},{lon:.5f}", use_cache=False)
     return d.get("currentSpeed"), d.get("freeFlowSpeed"), d.get("confidence"), d.get("roadClosure")
 
 
