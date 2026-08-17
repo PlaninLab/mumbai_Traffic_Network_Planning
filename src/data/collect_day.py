@@ -6,6 +6,12 @@ and adapts the cadence to the segment (finer where it matters):
 
     peak windows      -> every 10 min (default)   [08:00–11:00 & 17:30–20:30 IST]
     everything else   -> every 15 min (default)
+    night (optional)  -> --night-interval          [23:00–06:00 IST, every day]
+
+The night tier is off unless --night-interval is given. It overrides the segment
+cadence for the overnight hours only, so the quiet hours can be sampled coarsely
+and the saved API calls spent on a higher --n by day. It changes sampling rate
+only — a night reading is still tagged 'offpeak' by seg.classify(), as before.
 
 Every reading is tagged with its segment and written to the tabular SQLite store
 (src/data/store.py); the segment summary is refreshed after each one so the live
@@ -35,7 +41,17 @@ from src.data import segments as seg
 TOMTOM_DAILY_BUDGET = 2500
 
 
-def _interval_for(segment: str, peak_min: int, off_min: int) -> int:
+def _interval_for(when: datetime, segment: str, peak_min: int, off_min: int,
+                  night_min: int | None = None) -> int:
+    """Sampling cadence for one moment, in minutes.
+
+    The night window wins over the segment cadence when --night-interval is set,
+    so the quiet overnight hours can be sampled coarsely and the saved API calls
+    spent on daytime resolution instead. This changes only HOW OFTEN we sample;
+    the reading is still classified by seg.classify() exactly as before.
+    """
+    if night_min is not None and seg.is_night(when):
+        return night_min
     return peak_min if segment == "peak" else off_min
 
 
@@ -52,27 +68,35 @@ def _end_time(now_ist: datetime, until: str | None, minutes: int | None) -> date
     return now_ist.replace(hour=23, minute=59, second=0, microsecond=0)
 
 
-def simulate_schedule(start: datetime, end: datetime, peak_min: int, off_min: int):
+def simulate_schedule(start: datetime, end: datetime, peak_min: int, off_min: int,
+                      night_min: int | None = None):
     """Return the list of (time_ist, segment, interval_min) readings that would run."""
     sched, t = [], start
     while t <= end:
         s = seg.classify(t)
-        step = _interval_for(s, peak_min, off_min)
+        step = _interval_for(t, s, peak_min, off_min, night_min)
         sched.append((t, s, step))
         t = t + timedelta(minutes=step)
     return sched
 
 
-def _print_plan(sched, n, start, end, peak_min, off_min):
+def _print_plan(sched, n, start, end, peak_min, off_min, night_min=None):
     calls = len(sched) * n
     by_seg = {}
     for _, s, _step in sched:
         by_seg[s] = by_seg.get(s, 0) + 1
+    night_reads = sum(1 for t, _s, _step in sched if seg.is_night(t))
+    cadence = f"peak={peak_min}min, off-peak/avg={off_min}min"
+    if night_min is not None:
+        ns, ne = seg.NIGHT_WINDOW
+        cadence += f", night({ns:%H:%M}-{ne:%H:%M})={night_min}min"
     print(f"[collect_day] Window: {start:%Y-%m-%d %H:%M} -> {end:%H:%M} IST")
-    print(f"[collect_day] Cadence: peak={peak_min}min, off-peak/avg={off_min}min, "
-          f"points/reading n={n}")
+    print(f"[collect_day] Cadence: {cadence}, points/reading n={n}")
     print(f"[collect_day] Readings: {len(sched)} "
           f"({', '.join(f'{k}:{v}' for k, v in sorted(by_seg.items()))})")
+    if night_min is not None:
+        print(f"[collect_day]   of which night: {night_reads} "
+              f"(day: {len(sched) - night_reads})")
     print(f"[collect_day] Estimated API calls today: {calls}  "
           f"(TomTom free tier {TOMTOM_DAILY_BUDGET}/day; HERE tiers differ)")
     if calls > TOMTOM_DAILY_BUDGET:
@@ -84,11 +108,11 @@ def _print_plan(sched, n, start, end, peak_min, off_min):
 
 
 def run_day(n=25, until=None, minutes=None, peak_min=10, off_min=15,
-            provider="here", dry_run=False) -> None:
+            night_min=None, provider="here", dry_run=False) -> None:
     now = seg.ist_now()
     end = _end_time(now, until, minutes)
-    sched = simulate_schedule(now, end, peak_min, off_min)
-    _print_plan(sched, n, now, end, peak_min, off_min)
+    sched = simulate_schedule(now, end, peak_min, off_min, night_min)
+    _print_plan(sched, n, now, end, peak_min, off_min, night_min)
     print(f"[collect_day] Flow provider: {provider}")
 
     if dry_run:
@@ -109,7 +133,7 @@ def run_day(n=25, until=None, minutes=None, peak_min=10, off_min=15,
             count += 1
         except Exception as e:  # noqa: BLE001 — keep the day-long loop alive
             print(f"[collect_day] reading failed: {e}")
-        interval = _interval_for(s, peak_min, off_min)
+        interval = _interval_for(seg.ist_now(), s, peak_min, off_min, night_min)
         nxt = seg.ist_now() + timedelta(minutes=interval)
         if nxt > end:
             break
@@ -128,6 +152,10 @@ def main() -> None:
     ap.add_argument("--peak-interval", type=int, default=10, help="Peak cadence, minutes (default 10).")
     ap.add_argument("--offpeak-interval", type=int, default=15,
                     help="Off-peak/avg cadence, minutes (default 15).")
+    ap.add_argument("--night-interval", type=int, default=None,
+                    help="Overnight cadence, minutes (23:00-06:00 IST, every day). "
+                         "Omit to sample the night at the off-peak cadence, as before. "
+                         "Coarser nights free up API calls for a higher --n by day.")
     ap.add_argument("--provider", choices=["here", "tomtom"], default="here",
                     help="Flow data source (default here; needs HERE_API_KEY).")
     ap.add_argument("--dry-run", action="store_true", help="Preview the schedule; no API calls.")
@@ -135,6 +163,7 @@ def main() -> None:
 
     run_day(n=args.n, until=args.until, minutes=args.minutes,
             peak_min=args.peak_interval, off_min=args.offpeak_interval,
+            night_min=args.night_interval,
             provider=args.provider, dry_run=args.dry_run)
 
 

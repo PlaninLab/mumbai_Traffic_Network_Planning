@@ -40,6 +40,12 @@ AVG_WINDOWS = [
     (time(11, 0), time(17, 30)),   # inter-peak working-day daytime
 ]
 
+# Overnight low-demand window (IST), applied EVERY day including weekends. This
+# exists only to let a collector sample the quiet hours coarsely and spend the
+# saved API calls on daytime resolution. It does NOT affect classify() — a night
+# reading is still tagged 'offpeak', exactly as before.
+NIGHT_WINDOW = (time(23, 0), time(6, 0))   # start inclusive, end exclusive; wraps midnight
+
 # Human-facing metadata (used by the collector, summary, and web dashboard).
 SEGMENTS = {
     "peak": {
@@ -95,6 +101,18 @@ def classify_utc_iso(iso_str: str) -> str:
         return classify(datetime.fromisoformat(iso_str))
     except (ValueError, TypeError):
         return "offpeak"
+
+
+def is_night(dt: datetime | None = None) -> bool:
+    """True if the moment falls in NIGHT_WINDOW (interpreted in IST).
+
+    Sampling cadence only — see NIGHT_WINDOW. Never use this to tag a reading.
+    """
+    t = to_ist(dt or ist_now()).time()
+    start, end = NIGHT_WINDOW
+    if start <= end:
+        return start <= t < end
+    return t >= start or t < end        # window wraps past midnight
 
 
 def current_segment() -> str:
