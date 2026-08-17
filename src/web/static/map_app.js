@@ -618,7 +618,7 @@
 
   function renderOverview(body) {
     const sm = S.data.summary;
-    const m = sm.model, ms = sm.measured, cost = sm.cost;
+    const m = sm.model;
     const g = (S.data.od.google || [])[0];
 
     let corridorTile;
@@ -641,23 +641,14 @@
         "</b> junctions in the peak hour <span class='badge modeled'>MODELED</span>") +
       tile(fmt(m.delay_pcu_h) + " <small>PCU-h</small>",
         "lost to congestion every peak hour <span class='badge modeled'>MODELED</span>") +
-      tile("₹" + fmt1(cost.annual_inr_crore) + " <small>crore</small>",
-        "estimated congestion cost per year <span class='badge modeled'>EST.</span>") +
       tile(fmt(m.n_junctions),
-        "junctions monitored — volume + queue computed for each <span class='badge modeled'>MODELED</span>") +
+        "junctions monitored — volume + queue computed for each <span class='badge modeled'>MODELED</span>", true) +
       "</div></div>" +
       '<div class="sec"><h2>How to read this map</h2><div class="note">' +
       "<b>Colored spine</b> — measured probe speed on the WEH, by time of day (play it below the map).<br><br>" +
       "<b>Columns</b> — vehicles arriving at each intersection per hour, from one calibrated equilibrium run.<br><br>" +
       "<b>Red bands</b> — the standing queue on each over-capacity approach, drawn to physical scale on the road it occupies." +
-      "</div></div>" +
-      '<div class="sec"><h2>Cost basis</h2><div class="note">' +
-      fmt(cost.daily_person_h) + " person-hours/day = delay × " +
-      cost.assumptions.persons_per_pcu + " persons/PCU × " +
-      cost.assumptions.peak_equivalent_hours_per_day + " peak-equivalent hours. " +
-      "Valued at ₹" + cost.assumptions.value_of_time_inr_per_person_h +
-      "/person-hour × " + cost.assumptions.days_per_year + " days. " +
-      "<b>A planning estimate, not a measurement.</b></div></div>";
+      "</div></div>";
   }
 
   function renderJunctions(body) {
