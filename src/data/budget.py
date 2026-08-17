@@ -123,6 +123,28 @@ def reserve(provider: str, n_calls: int, limit: int | None,
         conn.close()
 
 
+def refund(provider: str, n_calls: int, month: str | None = None) -> int:
+    """Return calls that were reserved but never issued. Returns the new total.
+
+    Only ever called after a sweep decides to stop early, so a process killed
+    mid-sweep still forfeits its reservation — that forfeit is what bounds a
+    crash loop, and refunding on completion does not weaken it.
+    """
+    if n_calls <= 0:
+        return used(provider, month)
+    month = month or month_key()
+    conn = store.connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "UPDATE api_usage SET calls = MAX(0, calls - ?) WHERE provider = ? AND month = ?",
+            (n_calls, provider, month))
+        conn.commit()
+        return used(provider, month, conn=conn)
+    finally:
+        conn.close()
+
+
 def status(provider: str, limit: int | None = None, month: str | None = None) -> dict:
     """Human/JSON-friendly view of this month's usage."""
     month = month or month_key()

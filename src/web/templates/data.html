@@ -145,6 +145,63 @@
     {% endif %}
   </div>
 
+  <!-- ============ provider health ============ -->
+  <h2 class="section-title">Provider health</h2>
+  <div class="card">
+    {% set h = incidents.hold %}
+    {% if h.holding %}
+      <p>
+        <span class="pill bad">Paused</span>
+        HERE failed {{ h.consecutive }} time{{ "s" if h.consecutive != 1 else "" }} in a row.
+        The collector is skipping sweeps for another <strong>{{ h.minutes_remaining }} minutes</strong>,
+        then tries again. No API calls are made while it waits.
+      </p>
+    {% elif incidents.recent %}
+      <p>
+        <span class="pill ok">Healthy</span>
+        Collecting normally. Past failures are listed below — a sweep that returns data
+        clears the pause.
+      </p>
+    {% else %}
+      <p><span class="pill ok">Healthy</span> No provider failures recorded.</p>
+    {% endif %}
+
+    {% if incidents.recent %}
+    <div class="t-scroll" style="margin-top:14px;">
+      <table>
+        <thead><tr>
+          <th>When (UTC)</th><th>Problem</th><th class="num">HTTP</th>
+          <th class="num">Calls made</th><th class="num">In a row</th><th>Detail</th>
+        </tr></thead>
+        <tbody>
+          {% for r in incidents.recent %}
+          <tr>
+            <td>{{ r.occurred_utc[:19]|replace("T"," ") }}</td>
+            <td>
+              <span class="pill {{ 'bad' if r.kind in ('auth','rate_limit') else 'warn' }}">
+                {% if r.kind == 'rate_limit' %}Rate limited
+                {% elif r.kind == 'auth' %}Key rejected
+                {% elif r.kind == 'server_error' %}Provider error
+                {% elif r.kind == 'network' %}Unreachable
+                {% else %}No data{% endif %}
+              </span>
+            </td>
+            <td class="num">{{ r.http_status or "—" }}</td>
+            <td class="num">{{ r.requests_issued }}</td>
+            <td class="num">{{ r.consecutive }}</td>
+            <td class="note">{{ r.detail[:80] }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="note" style="margin-top:10px;">
+      "Calls made" is what the sweep actually spent before stopping — the rest of its
+      reservation is returned to the monthly budget, so an outage costs almost nothing.
+    </p>
+    {% endif %}
+  </div>
+
   {% if not inv.available %}
   <!-- ============ empty state ============ -->
   <div class="card empty" style="margin-top:16px;">

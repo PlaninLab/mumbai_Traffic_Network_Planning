@@ -35,7 +35,7 @@ import argparse
 import time
 from datetime import datetime, time as dtime, timedelta
 
-from src.data import budget, collect_flow, segment_summary
+from src.data import budget, collect_flow, incidents, segment_summary
 from src.data import segments as seg
 
 TOMTOM_DAILY_BUDGET = 2500
@@ -109,7 +109,7 @@ def _print_plan(sched, n, start, end, peak_min, off_min, night_min=None):
 
 def run_day(n=25, until=None, minutes=None, peak_min=10, off_min=15,
             night_min=None, provider="here", max_calls_month=None,
-            dry_run=False) -> None:
+            request_pause=0.0, dry_run=False) -> None:
     now = seg.ist_now()
     end = _end_time(now, until, minutes)
     sched = simulate_schedule(now, end, peak_min, off_min, night_min)
@@ -137,12 +137,31 @@ def run_day(n=25, until=None, minutes=None, peak_min=10, off_min=15,
         return
 
     print("\n[collect_day] Starting full-day collection. Ctrl-C to stop.\n")
-    count, starved = 0, False
+    count, starved, held = 0, False, False
     while seg.ist_now() <= end:
         s = seg.current_segment()
+        # Provider back-off is a GATE, not an extra sleep. Skipping the sweep here
+        # means no reservation and no requests, and the loop still falls through to
+        # its normal interval below — so the sampling grid stays intact and the
+        # collector simply misses the slots the provider cannot serve.
+        hold = incidents.hold_state(provider)
+        if hold["holding"]:
+            if not held:
+                print(f"[collect_day] PROVIDER HOLD — {provider} failed "
+                      f"{hold['consecutive']} time(s); skipping sweeps for another "
+                      f"{hold['minutes_remaining']} min.")
+                held = True
+            interval = _interval_for(seg.ist_now(), s, peak_min, off_min, night_min)
+            nxt = seg.ist_now() + timedelta(minutes=interval)
+            if nxt > end:
+                break
+            time.sleep(interval * 60)
+            continue
+        held = False
         try:
             collect_flow.collect(n, label=s, segment=s, provider=provider,
-                                 max_calls_month=max_calls_month)
+                                 max_calls_month=max_calls_month,
+                                 request_pause=request_pause)
             segment_summary.build_summary()   # refresh dashboard data
             count += 1
             starved = False
@@ -156,6 +175,10 @@ def run_day(n=25, until=None, minutes=None, peak_min=10, off_min=15,
                 print("[collect_day] Holding: no further calls until the cap rises or "
                       "the month rolls over. Sleeping on schedule.")
                 starved = True
+        # MUST precede `except Exception`: ProviderError subclasses RuntimeError,
+        # so a later clause would be unreachable and the hold would never be seen.
+        except incidents.ProviderError as e:
+            print(f"[collect_day] PROVIDER STOP — {e}")
         except Exception as e:  # noqa: BLE001 — keep the day-long loop alive
             print(f"[collect_day] reading failed: {e}")
         interval = _interval_for(seg.ist_now(), s, peak_min, off_min, night_min)
@@ -187,13 +210,16 @@ def main() -> None:
                     help="Cap total provider calls per billing month. Overrides "
                          "<PROVIDER>_MONTHLY_CALL_LIMIT / API_MONTHLY_CALL_LIMIT. "
                          "Counts ALL calls, including any free allowance.")
+    ap.add_argument("--request-pause", type=float, default=0.0,
+                    help="Seconds between consecutive point requests (default 0).")
     ap.add_argument("--dry-run", action="store_true", help="Preview the schedule; no API calls.")
     args = ap.parse_args()
 
     run_day(n=args.n, until=args.until, minutes=args.minutes,
             peak_min=args.peak_interval, off_min=args.offpeak_interval,
             night_min=args.night_interval, provider=args.provider,
-            max_calls_month=args.max_calls_month, dry_run=args.dry_run)
+            max_calls_month=args.max_calls_month,
+            request_pause=args.request_pause, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":

@@ -115,9 +115,25 @@ def _get(url: str, params: dict, endpoint: str, use_cache: bool = True) -> dict:
         if cached is not None:
             return cached["response"]
 
-    resp = requests.get(url, params=params, timeout=DEFAULT_TIMEOUT)
+    # Typed failures — see the note in apicache.cached_request.
+    from src.data import incidents
+
+    try:
+        resp = requests.get(url, params=params, timeout=DEFAULT_TIMEOUT)
+    except (requests.ConnectionError, requests.Timeout) as e:
+        raise incidents.ProviderError(f"TomTom unreachable: {e}", kind="network") from e
     if resp.status_code == 429:
-        raise RuntimeError("TomTom free-tier daily limit hit (HTTP 429). Resume tomorrow.")
+        raise incidents.ProviderError(
+            "TomTom free-tier daily limit hit (HTTP 429). Resume tomorrow.",
+            kind="rate_limit", status=429)
+    if resp.status_code in (401, 403):
+        raise incidents.ProviderError(
+            f"TomTom rejected the API key (HTTP {resp.status_code}).",
+            kind="auth", status=resp.status_code)
+    if resp.status_code >= 500:
+        raise incidents.ProviderError(
+            f"TomTom server error (HTTP {resp.status_code}).",
+            kind="server_error", status=resp.status_code)
     resp.raise_for_status()
     body = resp.json()
     _write_cache(path, params, body)

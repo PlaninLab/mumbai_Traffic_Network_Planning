@@ -74,6 +74,26 @@ CREATE TABLE IF NOT EXISTS api_usage (
     calls     INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (provider, month)
 );
+
+-- Provider outages, rate limits and auth failures (see src/data/incidents.py).
+CREATE TABLE IF NOT EXISTS api_incidents (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider        TEXT NOT NULL,
+    occurred_utc    TEXT NOT NULL,
+    kind            TEXT NOT NULL,    -- rate_limit | auth | server_error | network | other
+    http_status     INTEGER,
+    detail          TEXT,
+    requests_issued INTEGER,          -- how far the sweep got before aborting
+    consecutive     INTEGER
+);
+CREATE INDEX IF NOT EXISTS ix_incident_time ON api_incidents(occurred_utc);
+
+-- Current back-off per provider. Persistent so a restart cannot forget it.
+CREATE TABLE IF NOT EXISTS api_hold (
+    provider       TEXT PRIMARY KEY,
+    consecutive    INTEGER NOT NULL DEFAULT 0,
+    hold_until_utc TEXT
+);
 """
 
 _COLUMNS = ["run_id", "fetched_utc", "fetched_ist", "segment", "label", "idx",

@@ -29,7 +29,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
-from src.data import budget, store
+from src.data import budget, incidents, store
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCS = REPO_ROOT / "docs"
@@ -114,24 +114,34 @@ def budget_view(provider: str = "here") -> dict:
                 "exhausted": False}
 
 
+def incidents_view(provider: str = "here") -> dict:
+    """Provider failures and the current back-off. Never raises."""
+    try:
+        return {"hold": incidents.hold_state(provider), "recent": incidents.recent(15)}
+    except Exception:  # noqa: BLE001 — telemetry must not take the page down
+        return {"hold": {"holding": False, "consecutive": 0}, "recent": []}
+
+
 @app.get("/data", response_class=HTMLResponse)
 def data_inventory(request: Request):
     return templates.TemplateResponse(
         request,
         "data.html",
         {"inv": store.inventory(), "budget": budget_view(),
-         "usage_history": budget.all_usage()},
+         "usage_history": budget.all_usage(), "incidents": incidents_view()},
     )
 
 
 @app.get("/api/data")
 def api_data():
-    return JSONResponse({"inventory": store.inventory(), "budget": budget_view()})
+    return JSONResponse({"inventory": store.inventory(), "budget": budget_view(),
+                         "incidents": incidents_view()})
 
 
 @app.get("/api/health")
 def health():
     b = budget_view()
+    hold = incidents_view()["hold"]
     inv_totals = store.inventory()["totals"]
     return {"status": "ok",
             "has_segments": (PROCESSED / "segment_overview.json").exists(),
@@ -143,4 +153,9 @@ def health():
             "last_reading_ist": inv_totals.get("last_ist"),
             "calls_used": b.get("calls_used"),
             "calls_limit": b.get("calls_limit"),
-            "budget_exhausted": b.get("exhausted", False)}
+            "budget_exhausted": b.get("exhausted", False),
+            # Distinguishes "provider is down" from "collector is dead" and from
+            # "quota reached" — three states that look identical from outside.
+            "provider_hold": hold.get("holding", False),
+            "provider_hold_minutes": hold.get("minutes_remaining", 0),
+            "consecutive_failures": hold.get("consecutive", 0)}

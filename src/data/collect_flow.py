@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -31,7 +32,7 @@ from shapely.geometry import LineString
 
 from src.data import tomtom_client as tt
 from src.data import here_client
-from src.data import budget
+from src.data import budget, incidents
 from src.data import segments as seg
 from src.data import store
 
@@ -98,7 +99,8 @@ def _flow_reading(provider: str, lat: float, lon: float):
 
 
 def collect(n_points: int, label: str, segment: str | None = None,
-            provider: str = "tomtom", max_calls_month: int | None = None) -> Path:
+            provider: str = "tomtom", max_calls_month: int | None = None,
+            request_pause: float = 0.0) -> Path:
     # Reserve the whole sweep against the monthly cap BEFORE doing any work —
     # before the graph load, before the first request. A sweep that dies partway
     # keeps its reservation, which is what bounds a restart loop (see budget.py).
@@ -118,14 +120,37 @@ def collect(n_points: int, label: str, segment: str | None = None,
     out_path = OUT_DIR / f"flow_{label}_{ts}.csv"
 
     rows = []
+    issued = 0          # requests actually sent — what we are willing to pay for
+    provider_fails = 0  # consecutive provider-level failures
     print(f"[collect_flow] Sampling {n_points} points along WEH ({label}, provider={provider}) ...")
     for i, (lat, lon) in enumerate(points):
         point = f"{lat:.5f},{lon:.5f}"
         try:
             cur, free, conf, rc = _flow_reading(provider, lat, lon)
-        except Exception as e:  # noqa: BLE001 — log and continue the sweep
+            issued += 1
+            provider_fails = 0
+        except incidents.ProviderError as e:
+            # The provider itself is refusing or unreachable. Hammering the
+            # remaining points cannot help and spends the cap, so stop the sweep.
+            issued += 0 if e.kind == "network" else 1
+            provider_fails += 1
+            print(f"  [{i:>2}] {point}  {e.kind.upper()}: {e}")
+            if e.kind in incidents.ABORT_IMMEDIATELY or \
+                    provider_fails >= incidents.ABORT_AFTER_CONSECUTIVE:
+                budget.refund(provider, max(0, n_points - issued))
+                state = incidents.record(provider, e, requests_issued=issued)
+                raise incidents.ProviderError(
+                    f"{e} — aborted after {issued} of {n_points} requests; "
+                    f"holding {state['hold_minutes']} min "
+                    f"(failure #{state['consecutive']})",
+                    kind=e.kind, status=e.status) from e
+            continue
+        except Exception as e:  # noqa: BLE001 — one bad point, not a bad provider
+            issued += 1
             print(f"  [{i:>2}] {point}  ERROR: {e}")
             continue
+        if request_pause and i + 1 < n_points:
+            time.sleep(request_pause)
         tti = (free / cur) if cur else None  # travel-time index: >1 means slower than free-flow
         rows.append({
             "idx": i,
@@ -144,6 +169,15 @@ def collect(n_points: int, label: str, segment: str | None = None,
         flag = "" if not tti or tti < 1.2 else ("  <-- congested" if tti < 2 else "  <-- SEVERE")
         print(f"  [{i:>2}] {point}  cur={cur} free={free} TTI={tti and round(tti,2)}{flag}")
 
+    if not rows:
+        # Every point failed without tripping the provider-abort rule. Give back
+        # what was never sent and say so plainly, rather than raising IndexError
+        # off rows[0] and leaving the real cause unreported.
+        budget.refund(provider, max(0, n_points - issued))
+        raise incidents.ProviderError(
+            f"{provider}: {n_points} points attempted, none returned usable data.",
+            kind="other")
+
     with out_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         writer.writeheader()
@@ -152,6 +186,10 @@ def collect(n_points: int, label: str, segment: str | None = None,
     # Also persist to the tabular SQLite store (run_id matches the CSV stem).
     run_id = f"{label}_{ts}"
     inserted = store.insert_readings(rows, run_id)
+    # A sweep that produced rows means the provider is healthy — clear any hold.
+    incidents.record_success(provider)
+    if issued < n_points:
+        budget.refund(provider, n_points - issued)
 
     # Quick corridor summary.
     ttis = [r["tti"] for r in rows if r["tti"]]
@@ -175,6 +213,10 @@ def main() -> None:
                         help="Collect even if the current time is outside the --segment window.")
     parser.add_argument("--provider", choices=["tomtom", "here"], default="tomtom",
                         help="Flow data source (default tomtom; 'here' needs HERE_API_KEY).")
+    parser.add_argument("--request-pause", type=float, default=0.0,
+                        help="Seconds to wait between consecutive point requests "
+                             "(default 0). Spreads a sweep out to stay under a "
+                             "per-second rate limit.")
     parser.add_argument("--max-calls-month", type=int, default=None,
                         help="Cap total provider calls per billing month. Overrides "
                              "<PROVIDER>_MONTHLY_CALL_LIMIT / API_MONTHLY_CALL_LIMIT. "
@@ -198,11 +240,19 @@ def main() -> None:
 
     try:
         collect(args.n, label, segment=args.segment, provider=args.provider,
-                max_calls_month=args.max_calls_month)
+                max_calls_month=args.max_calls_month,
+                request_pause=args.request_pause)
     except budget.BudgetExhausted as e:
         print(f"[collect_flow] BUDGET STOP — {e}")
         print("  No call was made. Raise the cap, or wait for the month to roll over.")
         sys.exit(2)
+    # Must precede any broad handler: ProviderError is a RuntimeError subclass.
+    except incidents.ProviderError as e:
+        h = incidents.hold_state(args.provider)
+        print(f"[collect_flow] PROVIDER STOP — {e}")
+        print(f"  Unissued calls refunded. Holding {h['minutes_remaining']} min "
+              f"before the next attempt (python -m src.data.incidents --status).")
+        sys.exit(3)
 
 
 if __name__ == "__main__":

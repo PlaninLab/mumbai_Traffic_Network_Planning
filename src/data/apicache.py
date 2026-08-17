@@ -73,13 +73,32 @@ def cached_request(provider: str, endpoint: str, url: str, *,
         if hit is not None:
             return hit["response"]
 
-    if method.upper() == "POST":
-        resp = requests.post(url, params=params, json=json_body, headers=headers, timeout=timeout)
-    else:
-        resp = requests.get(url, params=params, headers=headers, timeout=timeout)
+    # Typed failures so the collector can tell "this provider is down" from "this
+    # one point has no data" and back off accordingly (src/data/incidents.py).
+    # ProviderError subclasses RuntimeError, so older broad handlers still catch it.
+    from src.data import incidents
+
+    try:
+        if method.upper() == "POST":
+            resp = requests.post(url, params=params, json=json_body,
+                                 headers=headers, timeout=timeout)
+        else:
+            resp = requests.get(url, params=params, headers=headers, timeout=timeout)
+    except (requests.ConnectionError, requests.Timeout) as e:
+        raise incidents.ProviderError(f"{provider} unreachable: {e}", kind="network") from e
 
     if resp.status_code == 429:
-        raise RuntimeError(f"{provider} rate/quota limit hit (HTTP 429). Try later.")
+        raise incidents.ProviderError(
+            f"{provider} rate/quota limit hit (HTTP 429). Try later.",
+            kind="rate_limit", status=429)
+    if resp.status_code in (401, 403):
+        raise incidents.ProviderError(
+            f"{provider} rejected the API key (HTTP {resp.status_code}).",
+            kind="auth", status=resp.status_code)
+    if resp.status_code >= 500:
+        raise incidents.ProviderError(
+            f"{provider} server error (HTTP {resp.status_code}).",
+            kind="server_error", status=resp.status_code)
     resp.raise_for_status()
     body = resp.json()
     _write(path, {**ident, "_endpoint": endpoint}, body)

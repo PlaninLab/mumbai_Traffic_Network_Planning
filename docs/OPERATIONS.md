@@ -149,3 +149,34 @@ makes no calls, and resumes when the month rolls over. `/api/health` reports
 **See what has been collected** at `/data` on the running dashboard — totals, per-day
 coverage with the peak/avg/off-peak split, the latest readings, and the per-point corridor
 profile. It reads the store live, so it fills in as the collector writes.
+
+---
+
+## 6. Provider outages and rate limits
+
+The collector stops rather than retrying into a wall. On a 429, a rejected key, a 5xx
+or an unreachable host it **aborts the sweep**, returns the calls it never issued to the
+monthly budget, records the failure, and holds off:
+
+| Consecutive failures | 1 | 2 | 3 | 4 | 5+ |
+|---|---|---|---|---|---|
+| Skips sweeps for | 15 min | 30 min | 60 min | 120 min | 240 min |
+
+A rate limit or a rejected key stops the sweep on the first point — neither fixes itself
+mid-sweep. A network blip or a 5xx allows three points before giving up.
+
+While holding, `collect_day` skips its sweep at the top of the loop: no reservation, no
+requests, and the sampling grid is unchanged — it simply misses the slots the provider
+cannot serve. One sweep that returns data clears the hold.
+
+```bash
+python -m src.data.incidents --status --provider here   # hold state + recent failures
+python -m src.data.incidents --clear  --provider here   # resume now, do not wait
+```
+
+The failures are also on `/data` under **Provider health**, and `/api/health` reports
+`provider_hold`, `provider_hold_minutes` and `consecutive_failures` — so a monitor can
+tell a provider outage apart from a dead collector and from an exhausted quota.
+
+Use `--request-pause SECONDS` to space out the individual point requests inside a sweep
+if you ever hit a per-second rate limit.
