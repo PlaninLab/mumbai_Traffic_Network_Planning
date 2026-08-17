@@ -1,0 +1,22 @@
+{
+  "fetched_at_utc": "2026-08-17T04:53:12.192651+00:00",
+  "identity": {
+    "origins": [
+      "19.25,72.86"
+    ],
+    "destinations": [
+      "19.05,72.84"
+    ],
+    "dep": null,
+    "_endpoint": "route_matrix"
+  },
+  "response": [
+    {
+      "originIndex": 0,
+      "destinationIndex": 0,
+      "distanceMeters": 24447,
+      "duration": "3480s",
+      "condition": "ROUTE_EXISTS"
+    }
+  ]
+}

@@ -204,6 +204,7 @@ mumbai-traffic-tool/
 │   │   ├── bpr.py                 Road-slows-down-when-full formula (BPR)
 │   │   ├── frank_wolfe.py         User-Equilibrium solver (the core algorithm)
 │   │   ├── metrics.py             TSTT, congestion (V/C), bottleneck ranking, corridor time
+│   │   ├── intersections.py       ★ Volume + standing-queue length per intersection
 │   │   └── run_assignment.py      Driver: demand → equilibrium → metrics
 │   ├── scenarios/                 LAYER 4 — the what-if engine
 │   │   ├── define_scenario.py     Widen / add / close / place-stalled-vehicle a link
@@ -212,10 +213,12 @@ mumbai-traffic-tool/
 │   ├── viz/                       LAYER 5 — reporting
 │   │   ├── network_map.py         Congestion maps (live snapshot + V/C per scenario)
 │   │   ├── dashboard.py           Scenario comparison bar charts
+│   │   ├── map_export.py          ★ Corridor-map payloads + offline corridor_map.html
 │   │   └── report.py              Self-contained HTML stakeholder report
 │   └── web/                       LAYER 5+ — hosting
-│       ├── app.py                 ★ FastAPI app (dashboard + report + JSON API)
-│       └── templates/             Dashboard HTML (Jinja)
+│       ├── app.py                 ★ FastAPI app (dashboard + map + report + JSON API)
+│       ├── static/                Corridor-map app (map_app.js, map.css, vendored deck.gl)
+│       └── templates/             Dashboard + map HTML (Jinja)
 ├── data/
 │   ├── raw/         OpenStreetMap extract, cached TomTom responses + collected snapshots
 │   └── processed/   Enriched network, zones, OD matrix, scenario/robustness, segments
@@ -335,10 +338,41 @@ uvicorn src.web.app:app --host 0.0.0.0 --port 8000
 | Route | What it serves |
 |-------|----------------|
 | `/` | Live dashboard — the two segments, congested circuits, scenario table |
+| `/map` | **The corridor map** — interactive WebGL observatory (see §7.6.1) |
 | `/report` | The full self-contained stakeholder report |
 | `/api/segments` | Segment summary JSON (peak vs average) |
 | `/api/scenarios` | Scenario-comparison JSON (incl. queue lengths) |
+| `/api/map/{name}` | Map payloads: `network`, `intersections`, `frames`, `od`, `here`, `summary` |
 | `/api/health` | Liveness + which outputs are present |
+
+### 7.6.1 The corridor map — the stakeholder centerpiece
+
+`/map` is a full-screen, dark WebGL map (deck.gl) built for presentations to the
+municipal corporation. The road network itself is the basemap, so it needs **no
+internet and no tile service**. It shows, in separate toggleable layers, always
+labeled **MEASURED** or **MODELED**:
+
+- the **speed film** — measured WEH speeds replayed by time of day (▶ under the map);
+- **probe animation** — light streaks that physically slow down where traffic does;
+- **intersection volumes** — a 3D column per junction, height = arriving PCU/h;
+- **queue lengths** — the standing queue on each over-capacity approach, drawn
+  to physical scale on the road it occupies (one continuous jam = one band);
+- **HERE road speeds**, **sample points**, and **OD flow arcs**.
+
+Side panels: Overview (headline tiles + cost basis), Junctions (ranked worst
+junctions, click to fly there), Day (time–space diagram of the corridor), Data
+(what has been collected so far). Deep links: `/map#junctions`, `/map#day`, `/map#data`.
+
+```bash
+python -m src.assignment.intersections   # volume + queue per intersection (cached UE run)
+python -m src.viz.map_export             # build the /map JSON payloads
+python -m src.viz.map_export --standalone  # + docs/corridor_map.html — ONE offline file
+```
+
+`docs/corridor_map.html` is a single self-contained file (~2.3 MB): copy it to a
+laptop or USB stick and open it in any browser — no server, no internet. Re-run
+`map_export` after new data arrives (or add it to the collection cron) and the
+map updates; every view degrades gracefully while its data is still missing.
 
 **Deploy with Docker:**
 

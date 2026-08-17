@@ -1,0 +1,1134 @@
+{
+  "fetched_at_utc": "2026-08-17T06:43:45.198989+00:00",
+  "identity": {
+    "lat": 19.19455,
+    "lon": 72.86005,
+    "r": 150,
+    "_endpoint": "flow"
+  },
+  "response": {
+    "sourceUpdated": "2026-08-17T06:42:52Z",
+    "results": [
+      {
+        "location": {
+          "description": "Akurli Road/Station Road",
+          "length": 1145.0,
+          "shape": {
+            "links": [
+              {
+                "points": [
+                  {
+                    "lat": 19.1933,
+                    "lng": 72.85935
+                  },
+                  {
+                    "lat": 19.19376,
+                    "lng": 72.85963
+                  }
+                ],
+                "length": 59.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19376,
+                    "lng": 72.85963
+                  },
+                  {
+                    "lat": 19.19405,
+                    "lng": 72.85976
+                  },
+                  {
+                    "lat": 19.19426,
+                    "lng": 72.85982
+                  }
+                ],
+                "length": 59.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19426,
+                    "lng": 72.85982
+                  },
+                  {
+                    "lat": 19.19496,
+                    "lng": 72.85998
+                  }
+                ],
+                "length": 80.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19496,
+                    "lng": 72.85998
+                  },
+                  {
+                    "lat": 19.19646,
+                    "lng": 72.8603
+                  }
+                ],
+                "length": 170.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19646,
+                    "lng": 72.8603
+                  },
+                  {
+                    "lat": 19.19676,
+                    "lng": 72.86037
+                  }
+                ],
+                "length": 34.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19676,
+                    "lng": 72.86037
+                  },
+                  {
+                    "lat": 19.19691,
+                    "lng": 72.86039
+                  }
+                ],
+                "length": 17.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19691,
+                    "lng": 72.86039
+                  },
+                  {
+                    "lat": 19.19733,
+                    "lng": 72.86045
+                  }
+                ],
+                "length": 47.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19733,
+                    "lng": 72.86045
+                  },
+                  {
+                    "lat": 19.19762,
+                    "lng": 72.86051
+                  }
+                ],
+                "length": 33.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19762,
+                    "lng": 72.86051
+                  },
+                  {
+                    "lat": 19.19796,
+                    "lng": 72.86057
+                  }
+                ],
+                "length": 38.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19796,
+                    "lng": 72.86057
+                  },
+                  {
+                    "lat": 19.19832,
+                    "lng": 72.86066
+                  }
+                ],
+                "length": 41.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19832,
+                    "lng": 72.86066
+                  },
+                  {
+                    "lat": 19.19849,
+                    "lng": 72.8607
+                  }
+                ],
+                "length": 19.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19849,
+                    "lng": 72.8607
+                  },
+                  {
+                    "lat": 19.19879,
+                    "lng": 72.86078
+                  }
+                ],
+                "length": 34.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19879,
+                    "lng": 72.86078
+                  },
+                  {
+                    "lat": 19.1989,
+                    "lng": 72.8608
+                  }
+                ],
+                "length": 12.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.1989,
+                    "lng": 72.8608
+                  },
+                  {
+                    "lat": 19.19899,
+                    "lng": 72.86082
+                  }
+                ],
+                "length": 10.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19899,
+                    "lng": 72.86082
+                  },
+                  {
+                    "lat": 19.19919,
+                    "lng": 72.86086
+                  }
+                ],
+                "length": 23.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19919,
+                    "lng": 72.86086
+                  },
+                  {
+                    "lat": 19.19948,
+                    "lng": 72.8609
+                  }
+                ],
+                "length": 33.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19948,
+                    "lng": 72.8609
+                  },
+                  {
+                    "lat": 19.19978,
+                    "lng": 72.86094
+                  }
+                ],
+                "length": 34.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19978,
+                    "lng": 72.86094
+                  },
+                  {
+                    "lat": 19.20012,
+                    "lng": 72.86102
+                  }
+                ],
+                "length": 39.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.20012,
+                    "lng": 72.86102
+                  },
+                  {
+                    "lat": 19.20061,
+                    "lng": 72.86113
+                  }
+                ],
+                "length": 56.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.20061,
+                    "lng": 72.86113
+                  },
+                  {
+                    "lat": 19.20087,
+                    "lng": 72.8612
+                  },
+                  {
+                    "lat": 19.20118,
+                    "lng": 72.86133
+                  }
+                ],
+                "length": 67.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.20118,
+                    "lng": 72.86133
+                  },
+                  {
+                    "lat": 19.20126,
+                    "lng": 72.86136
+                  }
+                ],
+                "length": 9.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.20126,
+                    "lng": 72.86136
+                  },
+                  {
+                    "lat": 19.20146,
+                    "lng": 72.86144
+                  }
+                ],
+                "length": 24.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.20146,
+                    "lng": 72.86144
+                  },
+                  {
+                    "lat": 19.20155,
+                    "lng": 72.86148
+                  },
+                  {
+                    "lat": 19.20199,
+                    "lng": 72.86174
+                  }
+                ],
+                "length": 67.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.20199,
+                    "lng": 72.86174
+                  },
+                  {
+                    "lat": 19.20245,
+                    "lng": 72.86206
+                  },
+                  {
+                    "lat": 19.20267,
+                    "lng": 72.86227
+                  }
+                ],
+                "length": 94.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.20267,
+                    "lng": 72.86227
+                  },
+                  {
+                    "lat": 19.2028,
+                    "lng": 72.8624
+                  }
+                ],
+                "length": 20.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.2028,
+                    "lng": 72.8624
+                  },
+                  {
+                    "lat": 19.20297,
+                    "lng": 72.86257
+                  }
+                ],
+                "length": 26.0,
+                "functionalClass": 1
+              }
+            ]
+          }
+        },
+        "currentFlow": {
+          "speed": 9.722222,
+          "speedUncapped": 9.722222,
+          "freeFlow": 11.111112,
+          "jamFactor": 1.8,
+          "confidence": 0.99,
+          "traversability": "open"
+        }
+      },
+      {
+        "location": {
+          "description": "Datta Mandir Road",
+          "length": 1219.0,
+          "shape": {
+            "links": [
+              {
+                "points": [
+                  {
+                    "lat": 19.19971,
+                    "lng": 72.86114
+                  },
+                  {
+                    "lat": 19.19947,
+                    "lng": 72.8611
+                  }
+                ],
+                "length": 27.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19947,
+                    "lng": 72.8611
+                  },
+                  {
+                    "lat": 19.19913,
+                    "lng": 72.86104
+                  }
+                ],
+                "length": 38.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19913,
+                    "lng": 72.86104
+                  },
+                  {
+                    "lat": 19.19895,
+                    "lng": 72.86101
+                  }
+                ],
+                "length": 20.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19895,
+                    "lng": 72.86101
+                  },
+                  {
+                    "lat": 19.19846,
+                    "lng": 72.86092
+                  }
+                ],
+                "length": 55.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19846,
+                    "lng": 72.86092
+                  },
+                  {
+                    "lat": 19.19756,
+                    "lng": 72.86074
+                  }
+                ],
+                "length": 102.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19756,
+                    "lng": 72.86074
+                  },
+                  {
+                    "lat": 19.1973,
+                    "lng": 72.86069
+                  }
+                ],
+                "length": 29.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.1973,
+                    "lng": 72.86069
+                  },
+                  {
+                    "lat": 19.19682,
+                    "lng": 72.86059
+                  }
+                ],
+                "length": 54.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19682,
+                    "lng": 72.86059
+                  },
+                  {
+                    "lat": 19.19667,
+                    "lng": 72.86056
+                  }
+                ],
+                "length": 17.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19667,
+                    "lng": 72.86056
+                  },
+                  {
+                    "lat": 19.19623,
+                    "lng": 72.86047
+                  }
+                ],
+                "length": 50.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19623,
+                    "lng": 72.86047
+                  },
+                  {
+                    "lat": 19.19529,
+                    "lng": 72.86027
+                  }
+                ],
+                "length": 107.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19529,
+                    "lng": 72.86027
+                  },
+                  {
+                    "lat": 19.19507,
+                    "lng": 72.86022
+                  }
+                ],
+                "length": 25.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19507,
+                    "lng": 72.86022
+                  },
+                  {
+                    "lat": 19.19446,
+                    "lng": 72.86009
+                  }
+                ],
+                "length": 69.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19446,
+                    "lng": 72.86009
+                  },
+                  {
+                    "lat": 19.19404,
+                    "lng": 72.85995
+                  },
+                  {
+                    "lat": 19.19371,
+                    "lng": 72.85979
+                  }
+                ],
+                "length": 89.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19371,
+                    "lng": 72.85979
+                  },
+                  {
+                    "lat": 19.19357,
+                    "lng": 72.85972
+                  }
+                ],
+                "length": 17.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19357,
+                    "lng": 72.85972
+                  },
+                  {
+                    "lat": 19.19325,
+                    "lng": 72.8595
+                  }
+                ],
+                "length": 42.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19325,
+                    "lng": 72.8595
+                  },
+                  {
+                    "lat": 19.19301,
+                    "lng": 72.85938
+                  }
+                ],
+                "length": 30.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19301,
+                    "lng": 72.85938
+                  },
+                  {
+                    "lat": 19.19274,
+                    "lng": 72.85924
+                  }
+                ],
+                "length": 33.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19274,
+                    "lng": 72.85924
+                  },
+                  {
+                    "lat": 19.19253,
+                    "lng": 72.85913
+                  }
+                ],
+                "length": 26.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19253,
+                    "lng": 72.85913
+                  },
+                  {
+                    "lat": 19.19239,
+                    "lng": 72.85904
+                  }
+                ],
+                "length": 18.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19239,
+                    "lng": 72.85904
+                  },
+                  {
+                    "lat": 19.19215,
+                    "lng": 72.85888
+                  }
+                ],
+                "length": 32.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19215,
+                    "lng": 72.85888
+                  },
+                  {
+                    "lat": 19.19202,
+                    "lng": 72.8588
+                  }
+                ],
+                "length": 17.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19202,
+                    "lng": 72.8588
+                  },
+                  {
+                    "lat": 19.19181,
+                    "lng": 72.85867
+                  }
+                ],
+                "length": 27.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19181,
+                    "lng": 72.85867
+                  },
+                  {
+                    "lat": 19.19174,
+                    "lng": 72.85863
+                  }
+                ],
+                "length": 9.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19174,
+                    "lng": 72.85863
+                  },
+                  {
+                    "lat": 19.19146,
+                    "lng": 72.85852
+                  },
+                  {
+                    "lat": 19.19117,
+                    "lng": 72.85847
+                  }
+                ],
+                "length": 66.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19117,
+                    "lng": 72.85847
+                  },
+                  {
+                    "lat": 19.19067,
+                    "lng": 72.85845
+                  }
+                ],
+                "length": 56.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19067,
+                    "lng": 72.85845
+                  },
+                  {
+                    "lat": 19.19028,
+                    "lng": 72.85845
+                  }
+                ],
+                "length": 43.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19028,
+                    "lng": 72.85845
+                  },
+                  {
+                    "lat": 19.18961,
+                    "lng": 72.85845
+                  }
+                ],
+                "length": 74.0,
+                "functionalClass": 1
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.18961,
+                    "lng": 72.85845
+                  },
+                  {
+                    "lat": 19.18919,
+                    "lng": 72.85845
+                  }
+                ],
+                "length": 47.0,
+                "functionalClass": 1
+              }
+            ]
+          }
+        },
+        "currentFlow": {
+          "speed": 6.111111,
+          "speedUncapped": 6.111111,
+          "freeFlow": 11.111112,
+          "jamFactor": 5.8,
+          "confidence": 0.99,
+          "traversability": "open",
+          "subSegments": [
+            {
+              "length": 524.0,
+              "speed": 10.277778,
+              "speedUncapped": 10.277778,
+              "freeFlow": 11.111112,
+              "jamFactor": 1.2,
+              "confidence": 0.99,
+              "traversability": "open"
+            },
+            {
+              "length": 695.0,
+              "speed": 4.7222223,
+              "speedUncapped": 4.7222223,
+              "freeFlow": 11.111112,
+              "jamFactor": 7.1,
+              "confidence": 0.99,
+              "traversability": "open"
+            }
+          ]
+        }
+      },
+      {
+        "location": {
+          "length": 991.0,
+          "shape": {
+            "links": [
+              {
+                "points": [
+                  {
+                    "lat": 19.1895,
+                    "lng": 72.85822
+                  },
+                  {
+                    "lat": 19.18962,
+                    "lng": 72.85821
+                  }
+                ],
+                "length": 13.0,
+                "functionalClass": 3
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.18962,
+                    "lng": 72.85821
+                  },
+                  {
+                    "lat": 19.191,
+                    "lng": 72.85822
+                  }
+                ],
+                "length": 153.0,
+                "functionalClass": 3
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.191,
+                    "lng": 72.85822
+                  },
+                  {
+                    "lat": 19.19126,
+                    "lng": 72.85823
+                  },
+                  {
+                    "lat": 19.1914,
+                    "lng": 72.85825
+                  },
+                  {
+                    "lat": 19.19156,
+                    "lng": 72.8583
+                  },
+                  {
+                    "lat": 19.1918,
+                    "lng": 72.8584
+                  }
+                ],
+                "length": 92.0,
+                "functionalClass": 3
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.1918,
+                    "lng": 72.8584
+                  },
+                  {
+                    "lat": 19.19189,
+                    "lng": 72.85845
+                  }
+                ],
+                "length": 11.0,
+                "functionalClass": 3
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19189,
+                    "lng": 72.85845
+                  },
+                  {
+                    "lat": 19.19215,
+                    "lng": 72.85861
+                  }
+                ],
+                "length": 33.0,
+                "functionalClass": 3
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19215,
+                    "lng": 72.85861
+                  },
+                  {
+                    "lat": 19.19292,
+                    "lng": 72.85909
+                  }
+                ],
+                "length": 99.0,
+                "functionalClass": 3
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19292,
+                    "lng": 72.85909
+                  },
+                  {
+                    "lat": 19.1932,
+                    "lng": 72.85925
+                  }
+                ],
+                "length": 35.0,
+                "functionalClass": 3
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.1932,
+                    "lng": 72.85925
+                  },
+                  {
+                    "lat": 19.19356,
+                    "lng": 72.85945
+                  },
+                  {
+                    "lat": 19.19379,
+                    "lng": 72.85956
+                  }
+                ],
+                "length": 73.0,
+                "functionalClass": 3
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19379,
+                    "lng": 72.85956
+                  },
+                  {
+                    "lat": 19.19421,
+                    "lng": 72.85971
+                  },
+                  {
+                    "lat": 19.19443,
+                    "lng": 72.85977
+                  }
+                ],
+                "length": 75.0,
+                "functionalClass": 3
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19443,
+                    "lng": 72.85977
+                  },
+                  {
+                    "lat": 19.19548,
+                    "lng": 72.85985
+                  },
+                  {
+                    "lat": 19.19649,
+                    "lng": 72.86014
+                  }
+                ],
+                "length": 233.0,
+                "functionalClass": 3
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19649,
+                    "lng": 72.86014
+                  },
+                  {
+                    "lat": 19.19681,
+                    "lng": 72.86023
+                  }
+                ],
+                "length": 37.0,
+                "functionalClass": 3
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19681,
+                    "lng": 72.86023
+                  },
+                  {
+                    "lat": 19.19707,
+                    "lng": 72.8603
+                  }
+                ],
+                "length": 30.0,
+                "functionalClass": 3
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19707,
+                    "lng": 72.8603
+                  },
+                  {
+                    "lat": 19.19734,
+                    "lng": 72.86037
+                  }
+                ],
+                "length": 31.0,
+                "functionalClass": 3
+              },
+              {
+                "points": [
+                  {
+                    "lat": 19.19734,
+                    "lng": 72.86037
+                  },
+                  {
+                    "lat": 19.19801,
+                    "lng": 72.86051
+                  }
+                ],
+                "length": 76.0,
+                "functionalClass": 3
+              }
+            ]
+          }
+        },
+        "currentFlow": {
+          "speed": 2.777778,
+          "speedUncapped": 2.777778,
+          "freeFlow": 7.777778,
+          "jamFactor": 8.3,
+          "confidence": 0.99,
+          "traversability": "open",
+          "subSegments": [
+            {
+              "length": 303.0,
+              "speed": 4.166667,
+              "speedUncapped": 4.166667,
+              "freeFlow": 8.611112,
+              "jamFactor": 7.2,
+              "confidence": 0.99,
+              "traversability": "open"
+            },
+            {
+              "length": 135.0,
+              "speed": 10.0,
+              "speedUncapped": 10.0,
+              "freeFlow": 8.333334,
+              "jamFactor": 0.0,
+              "confidence": 0.99,
+              "traversability": "open"
+            },
+            {
+              "length": 148.0,
+              "speed": 5.555556,
+              "speedUncapped": 5.555556,
+              "freeFlow": 10.833334,
+              "jamFactor": 6.5,
+              "confidence": 0.99,
+              "traversability": "open"
+            },
+            {
+              "length": 233.0,
+              "speed": 7.777778,
+              "speedUncapped": 7.777778,
+              "freeFlow": 10.833334,
+              "jamFactor": 3.9,
+              "confidence": 0.99,
+              "traversability": "open"
+            },
+            {
+              "length": 173.0,
+              "speed": 0.8333334,
+              "speedUncapped": 0.8333334,
+              "freeFlow": 4.7222223,
+              "jamFactor": 9.3,
+              "confidence": 0.99,
+              "traversability": "open"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

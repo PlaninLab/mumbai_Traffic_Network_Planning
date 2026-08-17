@@ -47,6 +47,11 @@ templates = Jinja2Templates(directory=str(TEMPLATES))
 if DOCS.exists():
     app.mount("/assets", StaticFiles(directory=str(DOCS)), name="assets")
 
+# Static assets for the interactive corridor map (JS app, CSS, vendored deck.gl).
+STATIC = Path(__file__).resolve().parent / "static"
+if STATIC.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
+
 
 # --- data loaders (read fresh each call; degrade gracefully if missing) --------
 
@@ -86,6 +91,27 @@ def dashboard(request: Request):
         {"segments": segments, "scenarios": scenarios,
          "has_report": (DOCS / "report.html").exists()},
     )
+
+
+@app.get("/map", response_class=HTMLResponse)
+def corridor_map(request: Request):
+    return templates.TemplateResponse(request, "map.html", {})
+
+
+# Payload names the map API may serve — a fixed allowlist, never the raw path.
+MAP_PAYLOADS = {"network", "intersections", "frames", "od", "here", "summary"}
+
+
+@app.get("/api/map/{name}")
+def api_map(name: str):
+    if name not in MAP_PAYLOADS:
+        return JSONResponse({"error": "unknown payload"}, status_code=404)
+    p = PROCESSED / "map" / f"{name}.json"
+    if not p.exists():
+        return JSONResponse(
+            {"error": f"{name}.json not built yet. "
+                      "Run: python -m src.viz.map_export"}, status_code=404)
+    return FileResponse(p, media_type="application/json")
 
 
 @app.get("/report", response_class=HTMLResponse)

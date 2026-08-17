@@ -1,0 +1,16 @@
+{
+ "generated_utc": "2026-08-17T13:32:49.438739+00:00",
+ "converged": true,
+ "iterations": 8,
+ "final_gap": 0.005322064862960935,
+ "tstt_pcu_h": 4376.1,
+ "freeflow_tstt_pcu_h": 3606.9,
+ "delay_pcu_h": 769.1,
+ "corridor_eq_min": 28.9,
+ "corridor_ff_min": 27.5,
+ "corridor_origin_node": 7385085145,
+ "corridor_dest_node": 2247989218,
+ "n_links": 5102,
+ "peak_duration_h": 1.0,
+ "jam_density_veh_km_lane": 130.0
+}
