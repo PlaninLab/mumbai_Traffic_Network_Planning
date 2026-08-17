@@ -162,8 +162,15 @@ monthly budget, records the failure, and holds off:
 |---|---|---|---|---|---|
 | Skips sweeps for | 15 min | 30 min | 60 min | 120 min | 240 min |
 
-A rate limit or a rejected key stops the sweep on the first point — neither fixes itself
-mid-sweep. A network blip or a 5xx allows three points before giving up.
+A rate limit, a rejected key or a MISSING key stops the sweep on the first point — none
+of them fixes itself mid-sweep. A network blip or a 5xx allows three points before
+giving up.
+
+A failure that never left this machine — no key set (`config`), or no route to the host
+(`network`) — is refunded in full, because the provider never saw it and cannot bill for
+it. This matters more than it sounds: an unset key used to fail each point separately,
+so every sweep charged the cap for 16 requests that were never sent. A collector with no
+key would have spent the whole month's quota in about 32 days and collected nothing.
 
 While holding, `collect_day` skips its sweep at the top of the loop: no reservation, no
 requests, and the sampling grid is unchanged — it simply misses the slots the provider

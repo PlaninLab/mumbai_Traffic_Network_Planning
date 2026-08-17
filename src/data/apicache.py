@@ -31,13 +31,28 @@ DEFAULT_TIMEOUT = 30
 
 
 def get_key(env_var: str, hint: str) -> str:
-    """Read an API key from the environment (loading .env first)."""
+    """Read an API key from the environment (loading .env first).
+
+    A missing key raises a typed ProviderError so the sweep ABORTS and refunds,
+    instead of failing point by point. As a plain RuntimeError this landed in
+    collect_flow's per-point handler, which counts the point as issued: the
+    monthly cap was charged for 16 requests per sweep that never left the
+    machine, and none of the hold/hard-stop machinery ever engaged.
+
+    kind="config" is in both ABORT_IMMEDIATELY (no key means no later point can
+    succeed) and UNSENT_KINDS (nothing was sent, so refund the whole sweep).
+    """
     load_env()
     val = os.environ.get(env_var, "").strip()
     if not val:
-        raise RuntimeError(
+        # Imported here, not at module scope: incidents -> store -> segments, and
+        # this module sits under the client modules that incidents reports on.
+        from src.data import incidents
+        raise incidents.ProviderError(
             f"{env_var} not set. Add it to your git-ignored .env file "
-            f"(see .env.example). {hint}")
+            f"(see .env.example), or set it on the service in your host's "
+            f"environment settings. {hint}",
+            kind="config")
     return val
 
 

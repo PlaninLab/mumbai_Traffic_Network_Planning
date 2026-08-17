@@ -50,10 +50,19 @@ BACKOFF_MINUTES = [15, 30, 60, 120, 240]
 # does not clear itself — a person has to look and decide.
 DEFAULT_LATCH_AFTER = 25
 
-# A rate limit or a bad key will not fix itself inside one sweep — stop at once.
-# A network blip or a 5xx might, so allow a couple of points to fail first.
-ABORT_IMMEDIATELY = {"rate_limit", "auth"}
+# A rate limit, a rejected key or a MISSING key will not fix itself inside one
+# sweep — stop at once. A network blip or a 5xx might, so allow a couple of
+# points to fail first.
+ABORT_IMMEDIATELY = {"rate_limit", "auth", "config"}
 ABORT_AFTER_CONSECUTIVE = 3
+
+# Failures where the request never left this machine, so the provider never saw
+# it and nobody can bill for it. The sweep must give these back to the monthly
+# budget in full. "config" is the unset-key case: without a key there is no
+# request to send, and charging the cap for it would silently drain the month's
+# quota while collecting nothing — which is exactly what happened on the first
+# deployment, 16 phantom calls per sweep.
+UNSENT_KINDS = {"network", "config"}
 
 
 class ProviderError(RuntimeError):

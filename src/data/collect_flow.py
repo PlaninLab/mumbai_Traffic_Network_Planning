@@ -141,7 +141,10 @@ def collect(n_points: int, label: str, segment: str | None = None,
         except incidents.ProviderError as e:
             # The provider itself is refusing or unreachable. Hammering the
             # remaining points cannot help and spends the cap, so stop the sweep.
-            issued += 0 if e.kind == "network" else 1
+            # Only count what the provider actually received. A request that
+            # never left this machine (no route, no key) is not billable and
+            # must go back to the monthly cap — see incidents.UNSENT_KINDS.
+            issued += 0 if e.kind in incidents.UNSENT_KINDS else 1
             provider_fails += 1
             print(f"  [{i:>2}] {point}  {e.kind.upper()}: {e}")
             if e.kind in incidents.ABORT_IMMEDIATELY or \
