@@ -113,9 +113,39 @@ python -m src.scenarios.evaluate --cost-source google  # scenarios on real Googl
 ```bash
 # preview plan/budget          python -m src.data.collect_day --dry-run
 # collect all day (HERE)       python -m src.data.collect_day --n 25 --until 23:00
+# coarser nights               ... --peak-interval 15 --offpeak-interval 15 --night-interval 60
+# cap the monthly spend        ... --max-calls-month 38000   (or HERE_MONTHLY_CALL_LIMIT)
 # automate weekdays            powershell ... register_weekday_tasks.ps1 -FullDay
 # stop automation              powershell ... register_weekday_tasks.ps1 -Remove
 # how much data so far         python -m src.data.store --info
+# API calls used this month    python -m src.data.budget --status --provider here
 # dashboard                    uvicorn src.web.app:app --host 0.0.0.0 --port 8000
+# what has been collected      http://localhost:8000/data
 # scenarios on real OD         python -m src.scenarios.evaluate --cost-source google
 ```
+
+---
+
+## 5. Spend control and the data inventory
+
+**Cap the API spend.** The collector takes a reading the moment it starts, so a crash
+that repeats under a restart policy would bill one sweep per restart. Set a monthly cap
+and the collector refuses to sweep past it:
+
+```bash
+export HERE_MONTHLY_CALL_LIMIT=38000     # or --max-calls-month on the CLI
+python -m src.data.budget --status --provider here
+```
+
+The count lives in `traffic.db`, so it survives a restart. Calls are reserved **before**
+each sweep, which is what makes the cap hold against a crash loop. Months are keyed in
+UTC. This is a client-side guard — also set a spending alert with the provider, which is
+the hard stop.
+
+When the cap is reached the collector **holds** rather than exiting: it keeps its schedule,
+makes no calls, and resumes when the month rolls over. `/api/health` reports
+`budget_exhausted`, so a monitor can tell "out of quota" apart from "collector is dead".
+
+**See what has been collected** at `/data` on the running dashboard — totals, per-day
+coverage with the peak/avg/off-peak split, the latest readings, and the per-point corridor
+profile. It reads the store live, so it fills in as the collector writes.

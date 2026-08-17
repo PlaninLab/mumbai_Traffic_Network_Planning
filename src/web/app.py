@@ -29,6 +29,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
+from src.data import budget, store
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCS = REPO_ROOT / "docs"
 PROCESSED = REPO_ROOT / "data" / "processed"
@@ -101,9 +103,44 @@ def api_scenarios():
     return JSONResponse(load_scenarios())
 
 
+def budget_view(provider: str = "here") -> dict:
+    """This month's metered-call usage. Never raises — the dashboard must render
+    even when the store is missing entirely."""
+    try:
+        limit = budget.resolve_limit(provider)
+        return budget.status(provider, limit)
+    except Exception:  # noqa: BLE001 — a broken budget row must not take the page down
+        return {"provider": provider, "calls_used": None, "calls_limit": None,
+                "exhausted": False}
+
+
+@app.get("/data", response_class=HTMLResponse)
+def data_inventory(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "data.html",
+        {"inv": store.inventory(), "budget": budget_view(),
+         "usage_history": budget.all_usage()},
+    )
+
+
+@app.get("/api/data")
+def api_data():
+    return JSONResponse({"inventory": store.inventory(), "budget": budget_view()})
+
+
 @app.get("/api/health")
 def health():
+    b = budget_view()
+    inv_totals = store.inventory()["totals"]
     return {"status": "ok",
             "has_segments": (PROCESSED / "segment_overview.json").exists(),
             "has_scenarios": (PROCESSED / "scenario_comparison.csv").exists(),
-            "has_report": (DOCS / "report.html").exists()}
+            "has_report": (DOCS / "report.html").exists(),
+            # Collection state — lets a monitor tell "out of quota" apart from
+            # "collector is dead", which look identical from the outside.
+            "readings": inv_totals.get("readings", 0),
+            "last_reading_ist": inv_totals.get("last_ist"),
+            "calls_used": b.get("calls_used"),
+            "calls_limit": b.get("calls_limit"),
+            "budget_exhausted": b.get("exhausted", False)}

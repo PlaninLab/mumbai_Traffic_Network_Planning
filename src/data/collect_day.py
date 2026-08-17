@@ -35,7 +35,7 @@ import argparse
 import time
 from datetime import datetime, time as dtime, timedelta
 
-from src.data import collect_flow, segment_summary
+from src.data import budget, collect_flow, segment_summary
 from src.data import segments as seg
 
 TOMTOM_DAILY_BUDGET = 2500
@@ -108,12 +108,25 @@ def _print_plan(sched, n, start, end, peak_min, off_min, night_min=None):
 
 
 def run_day(n=25, until=None, minutes=None, peak_min=10, off_min=15,
-            night_min=None, provider="here", dry_run=False) -> None:
+            night_min=None, provider="here", max_calls_month=None,
+            dry_run=False) -> None:
     now = seg.ist_now()
     end = _end_time(now, until, minutes)
     sched = simulate_schedule(now, end, peak_min, off_min, night_min)
     _print_plan(sched, n, now, end, peak_min, off_min, night_min)
     print(f"[collect_day] Flow provider: {provider}")
+
+    limit = budget.resolve_limit(provider, max_calls_month)
+    s = budget.status(provider, limit)
+    if limit:
+        print(f"[collect_day] Monthly cap: {s['calls_used']:,}/{limit:,} calls used "
+              f"({s['month_utc']} UTC, {s['calls_remaining']:,} left)")
+        if len(sched) * n > s["calls_remaining"]:
+            print(f"  !! This day's plan needs {len(sched) * n:,} calls but only "
+                  f"{s['calls_remaining']:,} remain. Collection will stop part-way.")
+    else:
+        print(f"[collect_day] Monthly cap: none set — {s['calls_used']:,} calls used so far "
+              f"({s['month_utc']} UTC). Set <PROVIDER>_MONTHLY_CALL_LIMIT to bound spend.")
 
     if dry_run:
         print("\n[collect_day] --dry-run: schedule preview only (no API calls).")
@@ -124,13 +137,25 @@ def run_day(n=25, until=None, minutes=None, peak_min=10, off_min=15,
         return
 
     print("\n[collect_day] Starting full-day collection. Ctrl-C to stop.\n")
-    count = 0
+    count, starved = 0, False
     while seg.ist_now() <= end:
         s = seg.current_segment()
         try:
-            collect_flow.collect(n, label=s, segment=s, provider=provider)
+            collect_flow.collect(n, label=s, segment=s, provider=provider,
+                                 max_calls_month=max_calls_month)
             segment_summary.build_summary()   # refresh dashboard data
             count += 1
+            starved = False
+        except budget.BudgetExhausted as e:
+            # Keep the process alive but make NO calls: exiting here would restart-loop
+            # under `restart: unless-stopped`. The counter rolls over with the month,
+            # so collection resumes on its own. /api/health reports this state, so it
+            # is visible without reading the log.
+            if not starved:
+                print(f"[collect_day] BUDGET STOP — {e}")
+                print("[collect_day] Holding: no further calls until the cap rises or "
+                      "the month rolls over. Sleeping on schedule.")
+                starved = True
         except Exception as e:  # noqa: BLE001 — keep the day-long loop alive
             print(f"[collect_day] reading failed: {e}")
         interval = _interval_for(seg.ist_now(), s, peak_min, off_min, night_min)
@@ -158,13 +183,17 @@ def main() -> None:
                          "Coarser nights free up API calls for a higher --n by day.")
     ap.add_argument("--provider", choices=["here", "tomtom"], default="here",
                     help="Flow data source (default here; needs HERE_API_KEY).")
+    ap.add_argument("--max-calls-month", type=int, default=None,
+                    help="Cap total provider calls per billing month. Overrides "
+                         "<PROVIDER>_MONTHLY_CALL_LIMIT / API_MONTHLY_CALL_LIMIT. "
+                         "Counts ALL calls, including any free allowance.")
     ap.add_argument("--dry-run", action="store_true", help="Preview the schedule; no API calls.")
     args = ap.parse_args()
 
     run_day(n=args.n, until=args.until, minutes=args.minutes,
             peak_min=args.peak_interval, off_min=args.offpeak_interval,
-            night_min=args.night_interval,
-            provider=args.provider, dry_run=args.dry_run)
+            night_min=args.night_interval, provider=args.provider,
+            max_calls_month=args.max_calls_month, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":

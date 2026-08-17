@@ -64,6 +64,16 @@ CREATE TABLE IF NOT EXISTS flow_readings (
 CREATE INDEX IF NOT EXISTS ix_flow_segment ON flow_readings(segment);
 CREATE INDEX IF NOT EXISTS ix_flow_fetched ON flow_readings(fetched_utc);
 CREATE INDEX IF NOT EXISTS ix_flow_run     ON flow_readings(run_id);
+
+-- Metered API calls reserved per provider per billing month (see src/data/budget.py).
+-- Lives here so it shares the readings DB, and therefore the persistent volume:
+-- the count has to survive a restart to bound a crash loop.
+CREATE TABLE IF NOT EXISTS api_usage (
+    provider  TEXT NOT NULL,
+    month     TEXT NOT NULL,          -- 'YYYY-MM', UTC
+    calls     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (provider, month)
+);
 """
 
 _COLUMNS = ["run_id", "fetched_utc", "fetched_ist", "segment", "label", "idx",
@@ -171,6 +181,74 @@ def backfill_csvs(pattern: str = "flow_*.csv") -> int:
     finally:
         conn.close()
     return total
+
+
+def inventory(df: pd.DataFrame | None = None, recent: int = 25) -> dict:
+    """Human-readable summary of everything collected — powers the /data page.
+
+    Derives every view from ONE table read. Returns empty-but-valid structures
+    when the DB is missing or empty, which is its state on a fresh deploy before
+    the collector's first sweep lands.
+    """
+    df = load_readings_df() if df is None else df
+    empty = {"available": False, "totals": {}, "by_day": [], "recent": [],
+             "by_point": [], "by_segment": []}
+    if df.empty:
+        return empty
+
+    df = df.copy()
+    df["ist"] = pd.to_datetime(df["fetched_ist"], errors="coerce", utc=True)
+    df["day"] = df["ist"].dt.strftime("%Y-%m-%d")
+    valid = df[df["tti"].notna() & (df["tti"] > 0)]
+
+    totals = {
+        "rows": int(len(df)),
+        "readings": int(df["run_id"].nunique()),
+        "points": int(df["idx"].nunique()),
+        "days": int(df["day"].nunique()),
+        "first_ist": df["fetched_ist"].min(),
+        "last_ist": df["fetched_ist"].max(),
+        "providers": sorted(p for p in df["provider"].dropna().unique()),
+        "mean_tti": round(float(valid["tti"].mean()), 3) if not valid.empty else None,
+        "closures": int(df["road_closure"].fillna(0).astype(float).sum()),
+    }
+
+    by_day = (df.groupby("day")
+                .agg(readings=("run_id", "nunique"), rows=("id", "size"),
+                     mean_tti=("tti", "mean"), worst_tti=("tti", "max"),
+                     mean_kph=("current_speed_kph", "mean"))
+                .round(2).reset_index().sort_values("day", ascending=False))
+    # Per-day segment split, so a gap in weekday peak coverage is visible at a glance.
+    split = (df.groupby(["day", "segment"])["run_id"].nunique().unstack(fill_value=0))
+    for s in ("peak", "avg", "offpeak"):
+        by_day[s] = by_day["day"].map(split[s]) if s in split else 0
+
+    by_segment = (df.groupby("segment")
+                    .agg(readings=("run_id", "nunique"), rows=("id", "size"),
+                         mean_tti=("tti", "mean"), mean_kph=("current_speed_kph", "mean"))
+                    .round(2).reset_index())
+
+    recent_runs = (df.groupby("run_id")
+                     .agg(when_ist=("fetched_ist", "max"), segment=("segment", "first"),
+                          points=("idx", "size"), mean_tti=("tti", "mean"),
+                          worst_tti=("tti", "max"), slowest_kph=("current_speed_kph", "min"),
+                          provider=("provider", "first"))
+                     .round(2).reset_index()
+                     .sort_values("when_ist", ascending=False).head(recent))
+
+    by_point = (df.groupby("idx")
+                  .agg(obs=("id", "size"), lat=("lat", "first"), lon=("lon", "first"),
+                       mean_tti=("tti", "mean"), worst_tti=("tti", "max"),
+                       mean_kph=("current_speed_kph", "mean"),
+                       free_kph=("free_speed_kph", "mean"))
+                  .round(2).reset_index().sort_values("idx"))
+
+    def _rows(frame):
+        return frame.where(pd.notna(frame), None).to_dict(orient="records")
+
+    return {"available": True, "totals": totals, "by_day": _rows(by_day),
+            "by_segment": _rows(by_segment), "recent": _rows(recent_runs),
+            "by_point": _rows(by_point)}
 
 
 def segment_counts() -> pd.DataFrame:

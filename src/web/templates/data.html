@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Collected data — Mumbai Traffic</title>
+<style>
+  /* Same token set as dashboard.html so the two pages read as one app. */
+  :root {
+    --bg:#f6f7f9; --card:#ffffff; --ink:#1c2530; --muted:#5b6775;
+    --line:#e3e7ec; --accent:#1f6feb; --good:#12855b; --warn:#c77700; --bad:#c0392b;
+    --shadow:0 1px 3px rgba(0,0,0,.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0e1116; --card:#171b22; --ink:#e6edf3; --muted:#9aa7b4;
+            --line:#2a313b; --accent:#4c8dff; --good:#2ec27e; --warn:#e0a13a; --bad:#e06c5a;
+            --shadow:0 1px 3px rgba(0,0,0,.4); }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  .wrap { max-width:1040px; margin:0 auto; padding:28px 20px 60px; }
+  header h1 { margin:0 0 4px; font-size:1.55rem; }
+  header p { margin:0; color:var(--muted); }
+  .grid { display:grid; gap:16px; }
+  @media (min-width:720px){ .cols-2 { grid-template-columns:1fr 1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px;
+          padding:18px 20px; box-shadow:var(--shadow); }
+  .card h2 { margin:0 0 2px; font-size:1.05rem; }
+  .card .sub { color:var(--muted); font-size:.85rem; margin-bottom:12px; }
+  .metrics { display:flex; flex-wrap:wrap; gap:18px; margin-top:6px; }
+  .metric .n { font-size:1.5rem; font-weight:650; font-variant-numeric:tabular-nums; }
+  .metric .k { color:var(--muted); font-size:.78rem; text-transform:uppercase;
+               letter-spacing:.03em; }
+  .pill { display:inline-block; padding:2px 9px; border-radius:999px; font-size:.72rem;
+          font-weight:600; }
+  .pill.ok  { background:rgba(18,133,91,.15); color:var(--good); }
+  .pill.na  { background:rgba(120,120,120,.15); color:var(--muted); }
+  .pill.warn{ background:rgba(199,119,0,.15); color:var(--warn); }
+  .pill.bad { background:rgba(192,57,43,.15); color:var(--bad); }
+  .t-scroll { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:.86rem; }
+  th,td { text-align:left; padding:7px 9px; border-bottom:1px solid var(--line);
+          white-space:nowrap; }
+  th { color:var(--muted); font-weight:600; }
+  td.num,th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  tbody tr:last-child td { border-bottom:none; }
+  .bar { height:6px; border-radius:999px; background:rgba(120,120,120,.2); overflow:hidden;
+         margin-top:10px; }
+  .bar > i { display:block; height:100%; background:var(--accent); }
+  .bar > i.warn { background:var(--warn); } .bar > i.bad { background:var(--bad); }
+  .note { color:var(--muted); font-size:.85rem; }
+  .section-title { margin:30px 0 12px; font-size:1.15rem; }
+  a.btn { display:inline-block; background:var(--accent); color:#fff; text-decoration:none;
+          padding:9px 16px; border-radius:8px; font-weight:600; font-size:.9rem; }
+  a.btn.ghost { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  .nav { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+  .empty { text-align:center; padding:34px 20px; }
+  .empty .big { font-size:1.2rem; font-weight:650; margin-bottom:6px; }
+  code { background:rgba(120,120,120,.14); padding:1px 5px; border-radius:5px; font-size:.85em; }
+  footer { margin-top:40px; color:var(--muted); font-size:.8rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Collected data</h1>
+    <p>Everything the collector has recorded, straight from the reading store.</p>
+    <div class="nav">
+      <a class="btn ghost" href="/">← Dashboard</a>
+      <a class="btn ghost" href="/api/data">JSON</a>
+    </div>
+  </header>
+
+  {% set t = inv.totals %}
+
+  <!-- ============ API budget ============ -->
+  <h2 class="section-title">This month's API usage</h2>
+  <div class="card">
+    {% if budget.calls_limit %}
+      {% set pct = budget.pct_used or 0 %}
+      <div class="metrics">
+        <div class="metric">
+          <div class="n">{{ "{:,}".format(budget.calls_used) }}</div>
+          <div class="k">calls used</div>
+        </div>
+        <div class="metric">
+          <div class="n">{{ "{:,}".format(budget.calls_limit) }}</div>
+          <div class="k">monthly cap</div>
+        </div>
+        <div class="metric">
+          <div class="n">{{ "{:,}".format(budget.calls_remaining) }}</div>
+          <div class="k">remaining</div>
+        </div>
+        <div class="metric">
+          <div class="n">{{ pct }}%</div>
+          <div class="k">of cap</div>
+        </div>
+      </div>
+      <div class="bar">
+        <i class="{{ 'bad' if pct >= 90 else ('warn' if pct >= 70 else '') }}"
+           style="width:{{ [pct, 100]|min }}%"></i>
+      </div>
+      <p class="note" style="margin-top:10px;">
+        {% if budget.exhausted %}
+          <span class="pill bad">Exhausted</span>
+          The collector is holding. It makes no calls until the cap rises or the
+          billing month rolls over.
+        {% else %}
+          <span class="pill ok">Collecting</span>
+          Billing month {{ budget.month_utc }} (UTC). The count is reserved before each
+          sweep, so an interrupted sweep still counts against the cap.
+        {% endif %}
+      </p>
+    {% else %}
+      <div class="metrics">
+        <div class="metric">
+          <div class="n">{{ "{:,}".format(budget.calls_used) if budget.calls_used is not none else "—" }}</div>
+          <div class="k">calls used</div>
+        </div>
+        <div class="metric">
+          <div class="n"><span class="pill warn">No cap set</span></div>
+          <div class="k">monthly limit</div>
+        </div>
+      </div>
+      <p class="note" style="margin-top:10px;">
+        Nothing bounds spend right now. Set <code>HERE_MONTHLY_CALL_LIMIT</code> on the
+        collector to cap it.
+      </p>
+    {% endif %}
+
+    {% if usage_history|length > 1 %}
+    <div class="t-scroll" style="margin-top:14px;">
+      <table>
+        <thead><tr><th>Month (UTC)</th><th>Provider</th><th class="num">Calls</th></tr></thead>
+        <tbody>
+          {% for u in usage_history %}
+          <tr><td>{{ u.month_utc }}</td><td>{{ u.provider }}</td>
+              <td class="num">{{ "{:,}".format(u.calls) }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if not inv.available %}
+  <!-- ============ empty state ============ -->
+  <div class="card empty" style="margin-top:16px;">
+    <div class="big">No readings yet</div>
+    <p class="note">
+      The store is empty. Once the collector completes its first sweep this page fills in
+      on its own — no restart needed.
+    </p>
+  </div>
+
+  {% else %}
+
+  <!-- ============ totals ============ -->
+  <h2 class="section-title">What has been collected</h2>
+  <div class="card">
+    <div class="metrics">
+      <div class="metric"><div class="n">{{ "{:,}".format(t.readings) }}</div><div class="k">readings</div></div>
+      <div class="metric"><div class="n">{{ "{:,}".format(t.rows) }}</div><div class="k">observations</div></div>
+      <div class="metric"><div class="n">{{ t.days }}</div><div class="k">days covered</div></div>
+      <div class="metric"><div class="n">{{ t.points }}</div><div class="k">corridor points</div></div>
+      <div class="metric"><div class="n">{{ t.mean_tti or "—" }}</div><div class="k">mean TTI</div></div>
+      {% if t.closures %}
+      <div class="metric"><div class="n">{{ t.closures }}</div><div class="k">road closures</div></div>
+      {% endif %}
+    </div>
+    <p class="note" style="margin-top:12px;">
+      First reading {{ t.first_ist[:16]|replace("T"," ") }} ·
+      latest {{ t.last_ist[:16]|replace("T"," ") }} IST ·
+      source{{ "s" if t.providers|length > 1 else "" }}: {{ t.providers|join(", ") }}
+    </p>
+  </div>
+
+  <!-- ============ by segment ============ -->
+  <h2 class="section-title">By planning segment</h2>
+  <div class="card">
+    <p class="sub">Peak and average both need readings before the model can compare them.</p>
+    <div class="t-scroll">
+      <table>
+        <thead><tr>
+          <th>Segment</th><th class="num">Readings</th><th class="num">Observations</th>
+          <th class="num">Mean TTI</th><th class="num">Mean speed</th>
+        </tr></thead>
+        <tbody>
+          {% for s in inv.by_segment %}
+          <tr>
+            <td>{{ s.segment }}</td>
+            <td class="num">{{ "{:,}".format(s.readings) }}</td>
+            <td class="num">{{ "{:,}".format(s.rows) }}</td>
+            <td class="num">{{ s.mean_tti if s.mean_tti is not none else "—" }}</td>
+            <td class="num">{{ (s.mean_kph|round(1)) if s.mean_kph is not none else "—" }} kph</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ============ per day ============ -->
+  <h2 class="section-title">Day by day</h2>
+  <div class="card">
+    <p class="sub">A day with 0 peak readings is a gap worth knowing about.</p>
+    <div class="t-scroll">
+      <table>
+        <thead><tr>
+          <th>Date (IST)</th><th class="num">Readings</th>
+          <th class="num">Peak</th><th class="num">Avg</th><th class="num">Off-peak</th>
+          <th class="num">Mean TTI</th><th class="num">Worst TTI</th><th class="num">Mean speed</th>
+        </tr></thead>
+        <tbody>
+          {% for d in inv.by_day %}
+          <tr>
+            <td>{{ d.day }}</td>
+            <td class="num">{{ d.readings }}</td>
+            <td class="num">{{ d.peak }}</td>
+            <td class="num">{{ d.avg }}</td>
+            <td class="num">{{ d.offpeak }}</td>
+            <td class="num">{{ d.mean_tti if d.mean_tti is not none else "—" }}</td>
+            <td class="num">{{ d.worst_tti if d.worst_tti is not none else "—" }}</td>
+            <td class="num">{{ d.mean_kph if d.mean_kph is not none else "—" }} kph</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ============ recent readings ============ -->
+  <h2 class="section-title">Latest readings</h2>
+  <div class="card">
+    <p class="sub">Newest first. TTI 1.0 means free-flow; 2.0 means the trip takes twice as long.</p>
+    <div class="t-scroll">
+      <table>
+        <thead><tr>
+          <th>When (IST)</th><th>Segment</th><th class="num">Points</th>
+          <th class="num">Mean TTI</th><th class="num">Worst TTI</th>
+          <th class="num">Slowest</th><th>Source</th>
+        </tr></thead>
+        <tbody>
+          {% for r in inv.recent %}
+          <tr>
+            <td>{{ r.when_ist[:16]|replace("T"," ") if r.when_ist else "—" }}</td>
+            <td>{{ r.segment }}</td>
+            <td class="num">{{ r.points }}</td>
+            <td class="num">{{ r.mean_tti if r.mean_tti is not none else "—" }}</td>
+            <td class="num">
+              {% if r.worst_tti is not none %}
+                <span class="pill {{ 'bad' if r.worst_tti >= 2 else ('warn' if r.worst_tti >= 1.5 else 'na') }}">
+                  {{ r.worst_tti }}</span>
+              {% else %}—{% endif %}
+            </td>
+            <td class="num">{{ r.slowest_kph if r.slowest_kph is not none else "—" }} kph</td>
+            <td>{{ r.provider }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ============ per point ============ -->
+  <h2 class="section-title">Corridor profile</h2>
+  <div class="card">
+    <p class="sub">
+      Point 0 is the Dahisar end, the highest index is Bandra. Averaged over every reading,
+      so this is where congestion actually sits on the highway.
+    </p>
+    <div class="t-scroll">
+      <table>
+        <thead><tr>
+          <th class="num">Point</th><th class="num">Observations</th>
+          <th class="num">Mean TTI</th><th class="num">Worst TTI</th>
+          <th class="num">Mean speed</th><th class="num">Free-flow</th><th>Location</th>
+        </tr></thead>
+        <tbody>
+          {% for p in inv.by_point %}
+          <tr>
+            <td class="num">{{ p.idx }}</td>
+            <td class="num">{{ "{:,}".format(p.obs) }}</td>
+            <td class="num">
+              {% if p.mean_tti is not none %}
+                <span class="pill {{ 'bad' if p.mean_tti >= 2 else ('warn' if p.mean_tti >= 1.5 else 'na') }}">
+                  {{ p.mean_tti }}</span>
+              {% else %}—{% endif %}
+            </td>
+            <td class="num">{{ p.worst_tti if p.worst_tti is not none else "—" }}</td>
+            <td class="num">{{ p.mean_kph if p.mean_kph is not none else "—" }} kph</td>
+            <td class="num">{{ p.free_kph if p.free_kph is not none else "—" }} kph</td>
+            <td class="note">{{ p.lat }}, {{ p.lon }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% endif %}
+
+  <footer>
+    Read live from <code>data/processed/traffic.db</code> on every request — the numbers move
+    as the collector writes. Times are IST.
+  </footer>
+
+</div>
+</body>
+</html>

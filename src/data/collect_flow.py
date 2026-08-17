@@ -31,6 +31,7 @@ from shapely.geometry import LineString
 
 from src.data import tomtom_client as tt
 from src.data import here_client
+from src.data import budget
 from src.data import segments as seg
 from src.data import store
 
@@ -97,7 +98,16 @@ def _flow_reading(provider: str, lat: float, lon: float):
 
 
 def collect(n_points: int, label: str, segment: str | None = None,
-            provider: str = "tomtom") -> Path:
+            provider: str = "tomtom", max_calls_month: int | None = None) -> Path:
+    # Reserve the whole sweep against the monthly cap BEFORE doing any work —
+    # before the graph load, before the first request. A sweep that dies partway
+    # keeps its reservation, which is what bounds a restart loop (see budget.py).
+    limit = budget.resolve_limit(provider, max_calls_month)
+    reserved = budget.reserve(provider, n_points, limit)   # raises BudgetExhausted
+    if limit:
+        print(f"[collect_flow] Budget: {reserved:,}/{limit:,} {provider} calls used "
+              f"this month ({limit - reserved:,} left).")
+
     points = weh_spine_points(n_points)
     now_utc = datetime.now(timezone.utc)
     ts = now_utc.astimezone().strftime("%Y%m%d_%H%M")
@@ -165,6 +175,10 @@ def main() -> None:
                         help="Collect even if the current time is outside the --segment window.")
     parser.add_argument("--provider", choices=["tomtom", "here"], default="tomtom",
                         help="Flow data source (default tomtom; 'here' needs HERE_API_KEY).")
+    parser.add_argument("--max-calls-month", type=int, default=None,
+                        help="Cap total provider calls per billing month. Overrides "
+                             "<PROVIDER>_MONTHLY_CALL_LIMIT / API_MONTHLY_CALL_LIMIT. "
+                             "Counts ALL calls, including any free allowance.")
     args = parser.parse_args()
 
     label = args.label
@@ -182,7 +196,13 @@ def main() -> None:
             print(f"[collect_flow] --force: tagging as '{args.segment}' despite "
                   f"being in the '{actual}' window.")
 
-    collect(args.n, label, segment=args.segment, provider=args.provider)
+    try:
+        collect(args.n, label, segment=args.segment, provider=args.provider,
+                max_calls_month=args.max_calls_month)
+    except budget.BudgetExhausted as e:
+        print(f"[collect_flow] BUDGET STOP — {e}")
+        print("  No call was made. Raise the cap, or wait for the month to roll over.")
+        sys.exit(2)
 
 
 if __name__ == "__main__":
