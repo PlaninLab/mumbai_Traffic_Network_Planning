@@ -463,6 +463,7 @@
       '      <button data-tab="junctions">Junctions</button>' +
       '      <button data-tab="day">Day</button>' +
       '      <button data-tab="data">Data</button>' +
+      '      <button data-tab="glossary">A–Z</button>' +
       "    </div>" +
       '    <div class="tabbody" id="tabbody"></div>' +
       "  </div>" +
@@ -606,6 +607,7 @@
     if (S.tab === "overview") renderOverview(body);
     else if (S.tab === "junctions") renderJunctions(body);
     else if (S.tab === "day") renderDay(body);
+    else if (S.tab === "glossary") renderGlossary(body);
     else renderData(body);
   }
 
@@ -918,6 +920,56 @@
       " peak-equivalent h/day · " + asm.days_per_year + " days/yr.</div></div>";
   }
 
+  // ---- Glossary tab -----------------------------------------------------------
+  const GLOSSARY = [
+    ["PCU", "Passenger Car Unit — the common unit for mixed traffic. One car " +
+      "= 1 PCU. One bus or truck ≈ 3 PCU. One motorcycle ≈ 0.5 PCU. It lets " +
+      "us count buses, cars and bikes on one scale."],
+    ["PCU/h", "PCU per hour — a flow rate: how much traffic passes (or " +
+      "arrives at a junction) in one hour, in car units."],
+    ["PCU-h", "One PCU in motion for one hour. “Delay of 769 PCU-h” " +
+      "means the corridor loses 769 car-hours in one peak hour."],
+    ["TTI", "Travel Time Index — travel time now ÷ travel time on an empty " +
+      "road. TTI 1.0 = no delay. TTI 2.0 = the trip takes twice as long."],
+    ["Free flow", "The speed on an empty road. It is the reference that TTI " +
+      "and delay are measured against."],
+    ["V/C", "Volume ÷ Capacity of a road. Under 0.7 traffic is free. Near " +
+      "1.0 the road is full. Over 1.0 more vehicles arrive than the road can " +
+      "pass — a queue must grow."],
+    ["Capacity", "The maximum flow a road can serve, in PCU/h. It depends on " +
+      "lanes and road type."],
+    ["Queue length", "The physical length of the line of stopped vehicles on " +
+      "an approach, in meters. Computed from the excess arrivals and a jam " +
+      "density of 130 vehicles per km per lane."],
+    ["OD", "Origin → Destination. One OD flow is the demand for trips from " +
+      "one locality to another, in PCU/h."],
+    ["UE", "User Equilibrium — the assignment rule. Every driver takes the " +
+      "route that is fastest for them. The model stops when no driver can " +
+      "gain by switching routes. Computed with the Frank–Wolfe algorithm."],
+    ["BPR curve", "The standard engineering formula for how travel time " +
+      "rises as a road fills toward capacity."],
+    ["WEH", "Western Express Highway — the Dahisar → Bandra corridor this " +
+      "tool models."],
+    ["IST", "Indian Standard Time. All clock times in this page are IST."],
+    ["obs", "Observations — individual speed samples collected from the " +
+      "traffic APIs."],
+    ["MEASURED (M)", "Read directly from live probe data (TomTom, HERE, " +
+      "Google). Nothing is computed."],
+    ["MODELED (MOD)", "Computed by the traffic model from demand and the " +
+      "road network, and checked against the measured speeds."],
+    ["EST.", "An estimate that follows from stated assumptions — for example " +
+      "the yearly congestion cost. Not a measurement."],
+  ];
+
+  function renderGlossary(body) {
+    body.innerHTML =
+      '<div class="sec"><h2>Abbreviations & terms</h2><div class="gloss">' +
+      GLOSSARY.map(([t, d]) =>
+        '<div class="row"><div class="term">' + esc(t) + '</div>' +
+        '<div class="def">' + esc(d) + "</div></div>").join("") +
+      "</div></div>";
+  }
+
   // ---- animation loop ---------------------------------------------------------
   function renderLayers() {
     deckgl.setProps({ layers: makeLayers() });
@@ -940,7 +992,7 @@
   async function boot() {
     // Deep link: /map#junctions, /map#day, /map#data open on that tab.
     const hash = (location.hash || "").slice(1);
-    if (["overview", "junctions", "day", "data"].indexOf(hash) >= 0) S.tab = hash;
+    if (["overview", "junctions", "day", "data", "glossary"].indexOf(hash) >= 0) S.tab = hash;
     buildShell();
     const body = document.getElementById("tabbody");
     body.innerHTML = '<div class="empty">Loading corridor model…</div>';

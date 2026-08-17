@@ -59,8 +59,11 @@
 <div class="wrap">
   <header>
     <h1>Mumbai Traffic — Decision Support</h1>
-    <p>Western Express Highway · Dahisar → Bandra · weekday peak vs average-delay
-       · <a href="/map" style="font-weight:600">Open the corridor map →</a></p>
+    <p>Western Express Highway · Dahisar → Bandra · weekday peak vs average-delay</p>
+    <p style="margin-top:12px">
+      <a class="btn" href="/map">Open the corridor map →</a>
+      {% if has_report %}<a class="btn ghost" href="/report" style="margin-left:8px">Stakeholder report</a>{% endif %}
+    </p>
   </header>
 
   {% set segs = segments.get('segments', {} ) %}
