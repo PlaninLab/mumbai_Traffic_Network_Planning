@@ -22,6 +22,15 @@
 osmnx>=2.0
 networkx>=3.2
 
+# scikit-learn is NOT optional here, despite being an "optional dependency" of
+# osmnx. corridor.graphml is unprojected (epsg:4326), and for an unprojected
+# graph ox.nearest_nodes takes the haversine BallTree branch, which is
+# scikit-learn. Without it every sweep dies in weh_spine_points() with
+# "scikit-learn must be installed as an optional dependency to search an
+# unprojected graph". It arrived by accident before, as a dependency of
+# mapclassify; that is too fragile to rely on, so it is named here.
+scikit-learn>=1.3
+
 # --- Geospatial ---
 geopandas>=1.0
 shapely>=2.0
