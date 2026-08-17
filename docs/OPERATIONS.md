@@ -4,7 +4,7 @@ Two independent processes:
 
 | Process | What it does | Long-running? |
 |---------|--------------|---------------|
-| **Collector** (`collect_day` / scheduled tasks) | Pulls live speeds → SQLite store → refreshes summary | Yes (all day) or fire-and-forget |
+| **Collector** (`collect_campaign`) | Pulls the fixed August campaign → SQLite store | Yes during the campaign |
 | **Web server** (`uvicorn`) | Serves the dashboard + report at `:8000` | Yes (always on) |
 
 They do not depend on each other — the dashboard just reads whatever the collector has written.
@@ -16,7 +16,7 @@ They do not depend on each other — the dashboard just reads whatever the colle
 1. Keys in the git-ignored `.env` (never commit it):
    ```
    TOMTOM_API_KEY=...
-   HERE_API_KEY=...          # collect_day uses HERE by default
+   HERE_API_KEY=...          # collect_campaign uses HERE
    GOOGLE_MAPS_API_KEY=...   # only for OD cost matrices
    ```
 2. Dependencies installed once:
@@ -33,26 +33,47 @@ They do not depend on each other — the dashboard just reads whatever the colle
 
 ## 1. Start the data collector
 
-**Always preview the day's plan + API-call budget first (no calls made):**
+**Always preview the complete plan first (no calls made):**
 ```bash
-python -m src.data.collect_day --dry-run
+python -m src.data.collect_campaign --dry-run
 ```
 
-The production Docker collector intentionally requests the complete mapped inventory on
-every sweep—2,003 MMRDA junctions, including all 867 BMC junctions—plus the 16 existing
-WEH samples:
+The production Docker collector requests the complete mapped inventory on every normal
+sweep—2,003 MMRDA junctions, including all 867 BMC junctions—plus all 16 existing WEH
+sample points. That is exactly 2,019 planned HERE calls per normal sweep:
 
 ```bash
-python -m src.data.collect_day --n 16 --intersection-scope mmrda \
-  --all-intersections --peak-interval 15 --offpeak-interval 15 \
-  --night-interval 60 --until 23:59
+python -m src.data.collect_campaign --stay-alive
 ```
 
 Only successful provider observations are stored; it never creates placeholder traffic
 data. In `docker-compose.yml`, `HERE_MONTHLY_CALL_LIMIT=0` explicitly disables the
 client-side monthly stop while keeping call metering and provider back-off telemetry.
 
-### Option A — run it in the foreground (you watch it)
+The 32 slots and maximum 64,608 requests are:
+
+- 17 Aug 23:00 to 18 Aug 21:30 IST: 16 sweeps, every 90 minutes.
+- After the 45-minute offset: 18 Aug 23:45 to 19 Aug 22:15 IST: 16 sweeps,
+  every 90 minutes.
+- 19 Aug 23:15 IST: hard stop only; no sweep occurs at that time.
+
+The campaign refuses all paid calls unless the plan is exactly 2,003 regional junctions +
+16 WEH points = 2,019 calls, does not bunch up missed slots, claims each slot durably before
+spending, and enforces the hard stop inside a slow final sweep. One regional call captures
+the best flow observation near one junction; this is junction coverage, not a guarantee of
+one observation per OSM road link.
+
+Every point failure and every no-data response is durably written to
+`collection_failures`; sweep-level failures and a hard-stop truncation are logged there as
+well. Records include the run, stage, point, coordinates, failure kind, request-issued flag,
+HTTP status, and HERE correlation/request/SLO fields when present. This does not retry the
+point and does not add calls. Inspect the latest rows with:
+
+```bash
+python -m src.data.store --failures 100
+```
+
+### Legacy/manual option — run `collect_day` in the foreground
 ```bash
 python -m src.data.collect_day --n 25 --until 23:00
 ```
@@ -60,14 +81,14 @@ python -m src.data.collect_day --n 25 --until 23:00
 - Writes to `data/processed/traffic.db` and refreshes the dashboard after every reading.
 - It **stops itself** at `--until` (23:00 here). Leave the window open until then.
 
-### Option B — run it in the background (Windows)
+### Legacy/manual option — run `collect_day` in the background (Windows)
 ```bash
 Start-Process -WindowStyle Hidden -FilePath ".venv\Scripts\python.exe" ^
   -ArgumentList "-m","src.data.collect_day","--n","25","--until","23:00" ^
   -RedirectStandardOutput "data\collect.log" -RedirectStandardError "data\collect.err"
 ```
 
-### Option C — fully automated (recommended, no babysitting)
+### Legacy/manual option — register weekday tasks
 Register weekday jobs once (from an **admin** PowerShell); Windows runs them Mon–Fri:
 ```bash
 powershell -ExecutionPolicy Bypass -File scripts\register_weekday_tasks.ps1 -FullDay
@@ -77,6 +98,11 @@ This launches the full-day loop at 06:00 every weekday. Nothing to start manuall
 ---
 
 ## 2. When to switch the collector OFF, and how
+
+The deployed `collect_campaign` process stops making requests after its final scheduled
+slot and enforces the 19 August 23:15 IST hard cutoff. With `--stay-alive`, it then idles
+so Docker cannot relaunch it; leaving the container running costs nothing after closure.
+The controls below apply only to the older manual `collect_day` modes.
 
 **When:** the model needs at least a few complete **weekday** cycles that include a real
 **peak** and a real **avg** reading (that's what unlocks BPR β calibration). Practical target:
@@ -125,10 +151,9 @@ python -m src.scenarios.evaluate --cost-source google  # scenarios on real Googl
 ## Quick reference
 
 ```bash
-# preview plan/budget          python -m src.data.collect_day --dry-run
-# collect all day (HERE)       python -m src.data.collect_day --n 25 --until 23:00
-# collect every mapped point   ... --n 16 --intersection-scope mmrda --all-intersections
-# coarser nights               ... --peak-interval 15 --offpeak-interval 15 --night-interval 60
+# preview fixed campaign       python -m src.data.collect_campaign --dry-run
+# run fixed campaign           python -m src.data.collect_campaign --stay-alive
+# legacy corridor collection   python -m src.data.collect_day --n 25 --until 23:00
 # cap the monthly spend        ... --max-calls-month 38000   (or HERE_MONTHLY_CALL_LIMIT)
 # automate weekdays            powershell ... register_weekday_tasks.ps1 -FullDay
 # stop automation              powershell ... register_weekday_tasks.ps1 -Remove

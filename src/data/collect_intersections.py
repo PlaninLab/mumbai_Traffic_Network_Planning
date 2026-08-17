@@ -144,6 +144,46 @@ def _validate_provider_config(provider: str) -> None:
         here_client._key()
 
 
+def _log_point_failure(
+    *,
+    campaign: str | None,
+    run_id: str,
+    provider: str,
+    point: dict,
+    point_index: int,
+    kind: str,
+    detail: str,
+    request_issued: bool,
+    error: incidents.ProviderError | None = None,
+) -> None:
+    """Best-effort durable audit of one failed regional point."""
+    evidence = error.evidence if error is not None else {}
+    try:
+        store.insert_collection_failure({
+            "campaign": campaign,
+            "run_id": run_id,
+            "stage": "regional_junction",
+            "point_id": str(point["id"]),
+            "point_index": point_index,
+            "lat": float(point["lat"]),
+            "lon": float(point["lon"]),
+            "provider": provider,
+            "kind": kind,
+            "request_issued": request_issued,
+            "http_status": error.status if error is not None else None,
+            "detail": detail,
+            "endpoint": evidence.get("endpoint"),
+            "correlation_id": evidence.get("correlation_id"),
+            "request_id": evidence.get("request_id"),
+            "slo": evidence.get("slo"),
+            "server_date": evidence.get("server_date"),
+            "latency_ms": evidence.get("latency_ms"),
+            "response_body": evidence.get("response_body"),
+        })
+    except Exception as log_error:  # noqa: BLE001 — logging must not change call flow
+        print(f"[collect_intersections] WARNING: failure audit write failed: {log_error}")
+
+
 def _update_coverage_latest(path: Path, rows: list[dict], run_id: str) -> int:
     """Cache successful latest readings in coverage.json, preserving all metadata.
 
@@ -209,6 +249,9 @@ def collect(
     request_pause: float = 0.0,
     latch_after: int | None = None,
     coverage_path: Path = COVERAGE_PATH,
+    run_id: str | None = None,
+    stop_at: datetime | None = None,
+    campaign: str | None = None,
 ) -> dict:
     """Collect one bounded inventory batch and return a run summary.
 
@@ -219,6 +262,10 @@ def collect(
         raise ValueError("provider must be 'here' or 'tomtom'")
     if request_pause < 0:
         raise ValueError("request_pause must be zero or greater")
+    if run_id is not None and not run_id.strip():
+        raise ValueError("run_id must not be empty")
+    if stop_at is not None and stop_at.tzinfo is None:
+        raise ValueError("stop_at must be timezone-aware")
 
     latch = incidents.latch_state(provider)
     if latch["latched"]:
@@ -267,12 +314,13 @@ def collect(
         )
 
     now_utc = datetime.now(timezone.utc)
-    run_id = f"intersections_{scope}_{label}_{now_utc:%Y%m%d_%H%M%S_%f}"
+    run_id = run_id or f"intersections_{scope}_{label}_{now_utc:%Y%m%d_%H%M%S_%f}"
     segment = segment or seg.classify(now_utc)
     rows: list[dict] = []
     issued = 0
     provider_fails = 0
     failures = 0
+    deadline_reached = False
 
     try:
         print(
@@ -280,6 +328,14 @@ def collect(
             f"{scope.upper()} junctions (offset={offset}, provider={provider}) ..."
         )
         for i, point in enumerate(points):
+            if stop_at is not None and datetime.now(timezone.utc) >= stop_at:
+                deadline_reached = True
+                print(
+                    f"[collect_intersections] HARD STOP reached at "
+                    f"{stop_at.astimezone(seg.IST):%Y-%m-%d %H:%M} IST; "
+                    f"stopping before junction {offset + i:,}."
+                )
+                break
             point_id = str(point["id"])
             lat, lon = float(point["lat"]), float(point["lon"])
             coordinate = f"{lat:.5f},{lon:.5f}"
@@ -292,6 +348,17 @@ def collect(
                 issued += 0 if e.kind in incidents.UNSENT_KINDS else 1
                 provider_fails += 1
                 failures += 1
+                _log_point_failure(
+                    campaign=campaign,
+                    run_id=run_id,
+                    provider=provider,
+                    point=point,
+                    point_index=offset + i,
+                    kind=e.kind,
+                    detail=str(e),
+                    request_issued=e.kind not in incidents.UNSENT_KINDS,
+                    error=e,
+                )
                 print(f"  [{offset + i:>4}] {point_id}  {e.kind.upper()}: {e}")
                 if (
                     e.kind in incidents.ABORT_IMMEDIATELY
@@ -334,6 +401,16 @@ def collect(
             except Exception as e:  # noqa: BLE001 -- a bad point must not lose the batch
                 issued += 1
                 failures += 1
+                _log_point_failure(
+                    campaign=campaign,
+                    run_id=run_id,
+                    provider=provider,
+                    point=point,
+                    point_index=offset + i,
+                    kind="exception",
+                    detail=f"{type(e).__name__}: {e}",
+                    request_issued=True,
+                )
                 print(f"  [{offset + i:>4}] {point_id}  ERROR: {e}")
                 if pause_after:
                     time.sleep(request_pause)
@@ -343,6 +420,16 @@ def collect(
             # It consumes a call but never becomes a placeholder SQLite row.
             if current is None:
                 failures += 1
+                _log_point_failure(
+                    campaign=campaign,
+                    run_id=run_id,
+                    provider=provider,
+                    point=point,
+                    point_index=offset + i,
+                    kind="no_data",
+                    detail=f"Provider returned no usable current speed at {coordinate}.",
+                    request_issued=True,
+                )
                 print(f"  [{offset + i:>4}] {point_id}  NO USABLE FLOW DATA at {coordinate}")
                 if pause_after:
                     time.sleep(request_pause)
@@ -379,6 +466,16 @@ def collect(
             if pause_after:
                 time.sleep(request_pause)
 
+        if not rows and deadline_reached:
+            budget.refund(provider, max(0, requested - issued))
+            return {
+                "run_id": run_id, "scope": scope,
+                "total_in_scope": total_in_scope, "requested": requested,
+                "issued": issued, "inserted": 0, "failed": failures,
+                "offset": offset, "limit": limit, "provider": provider,
+                "coverage_updates": 0, "deadline_reached": True,
+            }
+
         if not rows:
             budget.refund(provider, max(0, requested - issued))
             err = incidents.ProviderError(
@@ -405,6 +502,7 @@ def collect(
             "requested": requested, "issued": issued, "inserted": inserted,
             "failed": failures, "offset": offset, "limit": limit,
             "provider": provider, "coverage_updates": coverage_updates,
+            "deadline_reached": deadline_reached,
         }
     except incidents.ProviderError:
         raise

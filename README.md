@@ -386,17 +386,38 @@ Regional readings use a dedicated `intersection_readings` table and never enter 
 legacy WEH `flow_readings` table. Only successful HERE/TomTom responses fill a marker;
 failed or unattempted junctions remain unchanged.
 
-The deployed collector is broader than the manual examples: every scheduled sweep calls
-all **2,003 MMRDA junctions**, which automatically includes all **867 BMC junctions**, as
-well as the 16 existing WEH samples. `HERE_MONTHLY_CALL_LIMIT=0` in `docker-compose.yml`
-means there is no client-side monthly stop; usage is still counted in SQLite and provider
-failure/back-off protection remains active. Preview that exact no-call schedule with:
+The deployed collector is a fixed, one-off campaign. Every scheduled sweep calls all
+**2,003 MMRDA junctions**, which automatically includes all **867 BMC junctions**, plus
+the **16 existing WEH points**: exactly **2,019 planned calls per normal sweep**. There are
+32 sweeps: 16 at 90-minute intervals from 23:00 IST on 17 August through 21:30 on 18
+August, then a 45-minute phase offset and 16 more from 23:45 through 22:15 on 19 August.
+23:15 on 19 August is the hard cutoff, not another collection slot. The maximum normal
+plan is therefore **64,608 HERE requests**.
+
+`HERE_MONTHLY_CALL_LIMIT=0` means there is no client-side monthly stop; usage is still
+counted in SQLite and provider failure/back-off protection remains active. The deployment
+also refuses to call HERE unless the plan is exactly 2,003 + 16 = 2,019 calls, never
+catches up missed slots, and durably claims a slot before spending so a restart cannot
+replay it.
+
+Every failed point is written to the durable SQLite `collection_failures` audit with its
+campaign run, WEH/junction identifier, coordinates, failure type, whether a request was
+issued, and HERE trace identifiers when supplied. Provider outage/back-off incidents
+remain in `api_incidents`. Inspect the latest failures without making any API call:
 
 ```bash
-python -m src.data.collect_day --n 16 --intersection-scope mmrda \
-  --all-intersections --peak-interval 15 --offpeak-interval 15 \
-  --night-interval 60 --until 23:59 --dry-run
+python -m src.data.store --failures 100
 ```
+
+Preview the exact zero-call plan with:
+
+```bash
+python -m src.data.collect_campaign --dry-run
+```
+
+One HERE point request records the best available flow observation near that junction.
+Covering every mapped junction does **not** guarantee a distinct reading for every mapped
+road link; road geometry remains OSM context unless HERE returns an observation for it.
 
 Side panels: Overview (headline tiles + cost basis), Junctions (ranked worst
 junctions, click to fly there), Day (time–space diagram of the corridor), Data
@@ -422,8 +443,8 @@ docker compose up --build -d
 ```
 
 The `web` and `collector` services share the persistent SQLite/data volume. Set
-`HERE_API_KEY` on the collector service; the compose command starts full-inventory MMRDA
-collection automatically and restarts it after a server reboot.
+`HERE_API_KEY` on the collector service; the compose command waits for the fixed campaign
+start and safely resumes its remaining unclaimed slots after a server reboot.
 
 **Deploy to a PaaS** (Render / Railway / Fly.io): the repo includes a `Procfile` and
 `Dockerfile`. Point the platform at the repo; it honours `$PORT` automatically. Deploy

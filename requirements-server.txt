@@ -2,7 +2,7 @@
 #
 # The server runs exactly two commands:
 #   uvicorn src.web.app:app          (dashboard, report, JSON API)
-#   python -m src.data.collect_day   (the metered collection loop)
+#   python -m src.data.collect_campaign   (the metered one-off campaign)
 #
 # This file is requirements.txt minus what neither of them imports. Keep it that
 # way: every package below is imported by something under src/, so the modelling

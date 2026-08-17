@@ -1,6 +1,7 @@
 # Mumbai Traffic Network Planning — hosting image.
 # Serves the dashboard + report + JSON API (read-only). Data collection is a
-# separate scheduled job (see scripts/crontab.example), not part of this image.
+# separate scheduled process (the current deployment uses collect_campaign),
+# not part of the public web process.
 FROM python:3.12-slim
 
 # geopandas / shapely / osmnx need a few system libs (GEOS, GDAL, PROJ).

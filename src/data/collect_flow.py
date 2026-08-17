@@ -98,9 +98,57 @@ def _flow_reading(provider: str, lat: float, lon: float):
     return d.get("currentSpeed"), d.get("freeFlowSpeed"), d.get("confidence"), d.get("roadClosure")
 
 
+def _log_point_failure(
+    *,
+    campaign: str | None,
+    run_id: str,
+    provider: str,
+    point_index: int,
+    lat: float,
+    lon: float,
+    kind: str,
+    detail: str,
+    request_issued: bool,
+    error: incidents.ProviderError | None = None,
+) -> None:
+    """Best-effort durable audit of one failed legacy WEH point."""
+    evidence = error.evidence if error is not None else {}
+    try:
+        store.insert_collection_failure({
+            "campaign": campaign,
+            "run_id": run_id,
+            "stage": "weh_corridor",
+            "point_id": f"weh-{point_index}",
+            "point_index": point_index,
+            "lat": lat,
+            "lon": lon,
+            "provider": provider,
+            "kind": kind,
+            "request_issued": request_issued,
+            "http_status": error.status if error is not None else None,
+            "detail": detail,
+            "endpoint": evidence.get("endpoint"),
+            "correlation_id": evidence.get("correlation_id"),
+            "request_id": evidence.get("request_id"),
+            "slo": evidence.get("slo"),
+            "server_date": evidence.get("server_date"),
+            "latency_ms": evidence.get("latency_ms"),
+            "response_body": evidence.get("response_body"),
+        })
+    except Exception as log_error:  # noqa: BLE001 — logging must not change call flow
+        print(f"[collect_flow] WARNING: failure audit write failed: {log_error}")
+
+
 def collect(n_points: int, label: str, segment: str | None = None,
             provider: str = "tomtom", max_calls_month: int | None = None,
-            request_pause: float = 0.0, latch_after: int | None = None) -> Path:
+            request_pause: float = 0.0, latch_after: int | None = None,
+            run_id: str | None = None, stop_at: datetime | None = None,
+            return_summary: bool = False,
+            campaign: str | None = None) -> Path | dict:
+    if run_id is not None and not run_id.strip():
+        raise ValueError("run_id must not be empty")
+    if stop_at is not None and stop_at.tzinfo is None:
+        raise ValueError("stop_at must be timezone-aware")
     # The hard stop wins over everything: no reservation, no graph load, no calls.
     # (Named `latch`, not `lat` — `lat` is the latitude in the sweep loop below.)
     latch = incidents.latch_state(provider)
@@ -129,6 +177,7 @@ def collect(n_points: int, label: str, segment: str | None = None,
 
     now_utc = datetime.now(timezone.utc)
     ts = now_utc.astimezone().strftime("%Y%m%d_%H%M")
+    effective_run_id = run_id or f"{label}_{ts}"
     # If not explicitly tagged, record the segment this reading actually falls into.
     segment = segment or seg.classify(now_utc)
 
@@ -140,12 +189,22 @@ def collect(n_points: int, label: str, segment: str | None = None,
     rows: list[dict] = []
     issued = 0          # requests actually sent — what we are willing to pay for
     provider_fails = 0  # consecutive provider-level failures
+    failures = 0
+    deadline_reached = False
     try:
         OUT_DIR.mkdir(parents=True, exist_ok=True)
         out_path = OUT_DIR / f"flow_{label}_{ts}.csv"
 
         print(f"[collect_flow] Sampling {n_points} points along WEH ({label}, provider={provider}) ...")
         for i, (lat, lon) in enumerate(points):
+            if stop_at is not None and datetime.now(timezone.utc) >= stop_at:
+                deadline_reached = True
+                print(
+                    f"[collect_flow] HARD STOP reached at "
+                    f"{stop_at.astimezone(seg.IST):%Y-%m-%d %H:%M} IST; "
+                    f"stopping before WEH point {i}."
+                )
+                break
             point = f"{lat:.5f},{lon:.5f}"
             try:
                 cur, free, conf, rc = _flow_reading(provider, lat, lon)
@@ -159,6 +218,19 @@ def collect(n_points: int, label: str, segment: str | None = None,
                 # must go back to the monthly cap — see incidents.UNSENT_KINDS.
                 issued += 0 if e.kind in incidents.UNSENT_KINDS else 1
                 provider_fails += 1
+                failures += 1
+                _log_point_failure(
+                    campaign=campaign,
+                    run_id=effective_run_id,
+                    provider=provider,
+                    point_index=i,
+                    lat=lat,
+                    lon=lon,
+                    kind=e.kind,
+                    detail=str(e),
+                    request_issued=e.kind not in incidents.UNSENT_KINDS,
+                    error=e,
+                )
                 print(f"  [{i:>2}] {point}  {e.kind.upper()}: {e}")
                 if e.kind in incidents.ABORT_IMMEDIATELY or \
                         provider_fails >= incidents.ABORT_AFTER_CONSECUTIVE:
@@ -175,10 +247,37 @@ def collect(n_points: int, label: str, segment: str | None = None,
                 continue
             except Exception as e:  # noqa: BLE001 — one bad point, not a bad provider
                 issued += 1
+                failures += 1
+                _log_point_failure(
+                    campaign=campaign,
+                    run_id=effective_run_id,
+                    provider=provider,
+                    point_index=i,
+                    lat=lat,
+                    lon=lon,
+                    kind="exception",
+                    detail=f"{type(e).__name__}: {e}",
+                    request_issued=True,
+                )
                 print(f"  [{i:>2}] {point}  ERROR: {e}")
                 continue
             if request_pause and i + 1 < n_points:
                 time.sleep(request_pause)
+            if cur is None:
+                failures += 1
+                _log_point_failure(
+                    campaign=campaign,
+                    run_id=effective_run_id,
+                    provider=provider,
+                    point_index=i,
+                    lat=lat,
+                    lon=lon,
+                    kind="no_data",
+                    detail=f"Provider returned no usable current speed at {point}.",
+                    request_issued=True,
+                )
+                print(f"  [{i:>2}] {point}  NO USABLE FLOW DATA")
+                continue
             tti = (free / cur) if cur else None  # travel-time index: >1 means slower than free-flow
             rows.append({
                 "idx": i,
@@ -196,6 +295,19 @@ def collect(n_points: int, label: str, segment: str | None = None,
             })
             flag = "" if not tti or tti < 1.2 else ("  <-- congested" if tti < 2 else "  <-- SEVERE")
             print(f"  [{i:>2}] {point}  cur={cur} free={free} TTI={tti and round(tti,2)}{flag}")
+
+        if not rows and deadline_reached:
+            budget.refund(provider, max(0, n_points - issued))
+            summary = {
+                "run_id": effective_run_id,
+                "requested": n_points,
+                "issued": issued,
+                "inserted": 0,
+                "failed": failures,
+                "deadline_reached": True,
+                "out_path": None,
+            }
+            return summary
 
         if not rows:
             # Every point failed without tripping the provider-abort rule. Give back
@@ -215,8 +327,7 @@ def collect(n_points: int, label: str, segment: str | None = None,
             writer.writerows(rows)
 
         # Also persist to the tabular SQLite store (run_id matches the CSV stem).
-        run_id = f"{label}_{ts}"
-        inserted = store.insert_readings(rows, run_id)
+        inserted = store.insert_readings(rows, effective_run_id)
         # A sweep that produced rows means the provider is healthy — clear any hold.
         incidents.record_success(provider)
         if issued < n_points:
@@ -226,11 +337,23 @@ def collect(n_points: int, label: str, segment: str | None = None,
         ttis = [r["tti"] for r in rows if r["tti"]]
         if ttis:
             print(f"\n[collect_flow] {len(rows)} points collected -> {out_path}")
-            print(f"  Stored {inserted} rows in {store.DB_PATH.name} (run_id={run_id})")
+            print(
+                f"  Stored {inserted} rows in {store.DB_PATH.name} "
+                f"(run_id={effective_run_id})"
+            )
             print(f"  Mean TTI: {sum(ttis)/len(ttis):.2f}   Max TTI: {max(ttis):.2f}")
             congested = [r for r in rows if r["tti"] and r["tti"] >= 1.5]
             print(f"  Congested points (TTI>=1.5): {len(congested)}")
-        return out_path
+        summary = {
+            "run_id": effective_run_id,
+            "requested": n_points,
+            "issued": issued,
+            "inserted": inserted,
+            "failed": failures,
+            "deadline_reached": deadline_reached,
+            "out_path": str(out_path),
+        }
+        return summary if return_summary else out_path
     except incidents.ProviderError:
         # Already refunded and recorded by the handlers above — re-raise as is.
         raise

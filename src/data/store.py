@@ -28,6 +28,7 @@ backfill or re-importing a CSV never duplicates rows.
 
 CLI:
     python -m src.data.store --info                 # row/segment counts
+    python -m src.data.store --failures 50          # latest collection failures
     python -m src.data.store --backfill             # import collected CSVs
     python -m src.data.store --export flow.csv      # dump the whole table
 """
@@ -37,7 +38,7 @@ from __future__ import annotations
 import argparse
 import glob
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -112,6 +113,62 @@ CREATE TABLE IF NOT EXISTS collection_cursor (
     updated_utc  TEXT NOT NULL
 );
 
+-- Absolute-time collection campaigns need a durable claim per scheduled slot.
+-- The claim is written before a paid sweep starts. If the process or container
+-- dies mid-sweep, a restart sees the existing claim and will not pay for the
+-- same slot a second time.
+CREATE TABLE IF NOT EXISTS collection_campaign_sweeps (
+    campaign       TEXT NOT NULL,
+    slot_utc       TEXT NOT NULL,
+    slot_ist       TEXT NOT NULL,
+    status         TEXT NOT NULL,
+    claimed_utc    TEXT NOT NULL,
+    finished_utc   TEXT,
+    scope          TEXT NOT NULL,
+    provider       TEXT NOT NULL,
+    expected_calls INTEGER NOT NULL,
+    requested      INTEGER,
+    issued         INTEGER,
+    inserted       INTEGER,
+    failed         INTEGER,
+    run_id         TEXT,
+    detail         TEXT,
+    PRIMARY KEY (campaign, slot_utc)
+);
+CREATE INDEX IF NOT EXISTS ix_campaign_sweeps_status
+    ON collection_campaign_sweeps(campaign, status);
+
+-- Durable point/sweep failure audit for collection campaigns. This complements
+-- api_incidents: api_incidents drives provider hold/latch behaviour, while this
+-- table answers exactly which scheduled run and which WEH/junction point failed.
+CREATE TABLE IF NOT EXISTS collection_failures (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    occurred_utc     TEXT NOT NULL,
+    campaign         TEXT,
+    run_id           TEXT,
+    stage            TEXT NOT NULL,
+    point_id         TEXT,
+    point_index      INTEGER,
+    lat              REAL,
+    lon              REAL,
+    provider         TEXT NOT NULL,
+    kind             TEXT NOT NULL,
+    request_issued   INTEGER,
+    http_status      INTEGER,
+    detail           TEXT,
+    endpoint         TEXT,
+    correlation_id   TEXT,
+    request_id       TEXT,
+    slo              TEXT,
+    server_date      TEXT,
+    latency_ms       INTEGER,
+    response_body    TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_collection_failures_run
+    ON collection_failures(run_id, occurred_utc);
+CREATE INDEX IF NOT EXISTS ix_collection_failures_kind
+    ON collection_failures(kind, occurred_utc);
+
 -- Metered API calls reserved per provider per billing month (see src/data/budget.py).
 -- Lives here so it shares the readings DB, and therefore the persistent volume:
 -- the count has to survive a restart to bound a crash loop.
@@ -181,6 +238,13 @@ _INTERSECTION_COLUMNS = [
     "run_id", "point_id", "scope", "fetched_utc", "fetched_ist", "segment",
     "label", "lat", "lon", "name", "provider", "current_speed_kph",
     "free_speed_kph", "tti", "confidence", "road_closure",
+]
+
+_FAILURE_COLUMNS = [
+    "occurred_utc", "campaign", "run_id", "stage", "point_id",
+    "point_index", "lat", "lon", "provider", "kind", "request_issued",
+    "http_status", "detail", "endpoint", "correlation_id", "request_id",
+    "slo", "server_date", "latency_ms", "response_body",
 ]
 
 
@@ -300,6 +364,74 @@ def insert_intersection_readings(
     return inserted
 
 
+def insert_collection_failure(failure: dict) -> int:
+    """Persist one point-level or sweep-level collection failure.
+
+    Provider trace identifiers are copied when available so the row remains
+    useful even if container stdout is later rotated away.
+    """
+    stage = str(failure.get("stage") or "").strip()
+    provider = str(failure.get("provider") or "").strip()
+    kind = str(failure.get("kind") or "").strip()
+    if not stage or not provider or not kind:
+        raise ValueError("failure stage, provider and kind must not be empty")
+    request_issued = failure.get("request_issued")
+    if request_issued is not None:
+        request_issued = int(bool(request_issued))
+    values = {
+        **failure,
+        "occurred_utc": failure.get("occurred_utc")
+        or datetime.now(timezone.utc).isoformat(),
+        "stage": stage,
+        "provider": provider,
+        "kind": kind,
+        "request_issued": request_issued,
+        "detail": str(failure.get("detail") or "")[:2000] or None,
+        "endpoint": str(failure.get("endpoint") or "")[:300] or None,
+        "response_body": str(failure.get("response_body") or "")[:2000] or None,
+    }
+    conn = connect()
+    try:
+        placeholders = ",".join(["?"] * len(_FAILURE_COLUMNS))
+        cursor = conn.execute(
+            f"INSERT INTO collection_failures ({','.join(_FAILURE_COLUMNS)}) "
+            f"VALUES ({placeholders})",
+            tuple(values.get(column) for column in _FAILURE_COLUMNS),
+        )
+        conn.commit()
+        return int(cursor.lastrowid)
+    finally:
+        conn.close()
+
+
+def load_collection_failures(
+    *, run_id: str | None = None, campaign: str | None = None, limit: int = 100,
+) -> list[dict]:
+    """Return newest durable collection failures, optionally filtered."""
+    if limit <= 0:
+        raise ValueError("limit must be greater than zero")
+    where: list[str] = []
+    params: list[object] = []
+    if run_id:
+        where.append("run_id = ?")
+        params.append(run_id)
+    if campaign:
+        where.append("campaign = ?")
+        params.append(campaign)
+    clause = f"WHERE {' AND '.join(where)}" if where else ""
+    conn = connect()
+    try:
+        rows = conn.execute(
+            f"SELECT id,{','.join(_FAILURE_COLUMNS)} FROM collection_failures "
+            f"{clause} ORDER BY id DESC LIMIT ?",
+            (*params, limit),
+        ).fetchall()
+        columns = ["id", *_FAILURE_COLUMNS]
+        return [dict(zip(columns, row)) for row in rows]
+    finally:
+        conn.close()
+
+
 def load_intersection_readings_df(scope: str | None = None) -> pd.DataFrame:
     """Return expanded-area readings, optionally filtered to a map scope.
 
@@ -393,6 +525,99 @@ def save_collection_cursor(stream: str, next_offset: int) -> None:
             (stream, int(next_offset)),
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def claim_campaign_sweep(
+    campaign: str,
+    slot_utc: str,
+    slot_ist: str,
+    *,
+    scope: str,
+    provider: str,
+    expected_calls: int,
+) -> bool:
+    """Atomically claim one paid campaign slot.
+
+    Returns ``True`` only to the first process that claims the slot. A durable
+    pre-call claim intentionally remains after a crash; skipping a partial slot
+    is cheaper and safer than issuing an unknown number of duplicate requests.
+    """
+    if not campaign.strip() or not slot_utc.strip() or not slot_ist.strip():
+        raise ValueError("campaign and slot timestamps must not be empty")
+    if expected_calls <= 0:
+        raise ValueError("expected_calls must be greater than zero")
+    conn = connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        cursor = conn.execute(
+            """
+            INSERT OR IGNORE INTO collection_campaign_sweeps (
+                campaign, slot_utc, slot_ist, status, claimed_utc,
+                scope, provider, expected_calls
+            ) VALUES (?, ?, ?, 'running', datetime('now'), ?, ?, ?)
+            """,
+            (campaign, slot_utc, slot_ist, scope, provider, expected_calls),
+        )
+        claimed = cursor.rowcount == 1
+        conn.commit()
+        return claimed
+    finally:
+        conn.close()
+
+
+def finish_campaign_sweep(
+    campaign: str,
+    slot_utc: str,
+    status: str,
+    *,
+    requested: int | None = None,
+    issued: int | None = None,
+    inserted: int | None = None,
+    failed: int | None = None,
+    run_id: str | None = None,
+    detail: str | None = None,
+) -> None:
+    """Finish a previously claimed campaign slot with its auditable outcome."""
+    if status not in {"completed", "partial", "failed", "missed"}:
+        raise ValueError("invalid campaign sweep status")
+    conn = connect()
+    try:
+        cursor = conn.execute(
+            """
+            UPDATE collection_campaign_sweeps
+            SET status = ?, finished_utc = datetime('now'), requested = ?,
+                issued = ?, inserted = ?, failed = ?, run_id = ?, detail = ?
+            WHERE campaign = ? AND slot_utc = ?
+            """,
+            (
+                status, requested, issued, inserted, failed, run_id,
+                (detail or "")[:1000] or None, campaign, slot_utc,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise ValueError(f"campaign slot was not claimed: {campaign} {slot_utc}")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def campaign_sweeps(campaign: str) -> list[dict]:
+    """Return every persisted slot outcome for one campaign in time order."""
+    conn = connect()
+    try:
+        columns = [
+            "campaign", "slot_utc", "slot_ist", "status", "claimed_utc",
+            "finished_utc", "scope", "provider", "expected_calls",
+            "requested", "issued", "inserted", "failed", "run_id", "detail",
+        ]
+        rows = conn.execute(
+            f"SELECT {','.join(columns)} FROM collection_campaign_sweeps "
+            "WHERE campaign = ? ORDER BY slot_utc",
+            (campaign,),
+        ).fetchall()
+        return [dict(zip(columns, row)) for row in rows]
     finally:
         conn.close()
 
@@ -537,6 +762,10 @@ def main() -> None:
     ap.add_argument("--info", action="store_true", help="Show row/segment counts.")
     ap.add_argument("--backfill", action="store_true", help="Import collected CSVs into the DB.")
     ap.add_argument("--export", metavar="CSV", help="Export the whole table to a CSV.")
+    ap.add_argument(
+        "--failures", type=int, nargs="?", const=50,
+        help="Show the latest collection failures (default 50).",
+    )
     args = ap.parse_args()
 
     if args.backfill:
@@ -548,7 +777,23 @@ def main() -> None:
         df.to_csv(args.export, index=False)
         print(f"[store] Exported {len(df)} rows -> {args.export}")
 
-    if args.info or not (args.backfill or args.export):
+    if args.failures is not None:
+        failures = load_collection_failures(limit=args.failures)
+        print(f"[store] Latest collection failures: {len(failures)}")
+        for failure in failures:
+            point = failure["point_id"] or (
+                f"WEH-{failure['point_index']}"
+                if failure["point_index"] is not None else "sweep"
+            )
+            issued = failure["request_issued"]
+            issued_text = "?" if issued is None else ("yes" if issued else "no")
+            print(
+                f"  {failure['occurred_utc']}  {failure['stage']:<18} "
+                f"{point:<24} {failure['kind']:<14} sent={issued_text}  "
+                f"{failure['detail'] or ''}"
+            )
+
+    if args.info or not (args.backfill or args.export or args.failures is not None):
         df = load_readings_df()
         print(f"[store] DB: {DB_PATH}")
         print(f"[store] Total rows: {len(df)}   readings: "

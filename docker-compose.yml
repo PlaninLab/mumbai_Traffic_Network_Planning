@@ -5,9 +5,9 @@
 #   web        read-only dashboard + report + JSON API. Holds no API key: the
 #              app never calls a paid provider, so the public-facing container
 #              has nothing to leak.
-#   collector  the metered process. Each sweep samples the WEH and every mapped
-#              MMRDA junction (which includes BMC), writes both to the SQLite
-#              store, and refreshes the corridor summary.
+#   collector  the metered, one-off August campaign. Each scheduled sweep calls
+#              every mapped MMRDA junction (which includes BMC) plus the 16 WEH
+#              points and writes successful observations to SQLite.
 #
 # The volumes are the only shared state. Both must mount BOTH: the collector
 # writes traffic.db and segment_overview.json, and the web service reads them.
@@ -34,7 +34,7 @@ services:
       # No API key is present here, so the public container cannot spend anything.
       HERE_MONTHLY_CALL_LIMIT: "0"
       REGIONAL_COLLECTION_SCOPE: "mmrda"
-      REGIONAL_COLLECTION_MODE: "all_intersections_each_sweep"
+      REGIONAL_COLLECTION_MODE: "fixed_august_2026_campaign"
     volumes:
       - traffic-data:/app/data/processed
       - traffic-csv:/app/data/raw/tomtom/collected
@@ -73,13 +73,17 @@ services:
     volumes:
       - traffic-data:/app/data/processed
       - traffic-csv:/app/data/raw/tomtom/collected
-    # --until MUST stay explicit. Omitted, _end_time() returns 23:59 today and
-    # never rolls forward, so a restart inside that minute exits immediately and
-    # `unless-stopped` spins. Passing it takes the branch that adds a day.
-    # Preserve all 16 existing WEH points and request the complete MMRDA
-    # inventory on every sweep. MMRDA contains every BMC junction, so one command
-    # covers all 2,003 mapped junctions without creating placeholder readings.
-    command: "python -m src.data.collect_day --n 16 --intersection-scope mmrda --all-intersections --provider here --peak-interval 15 --offpeak-interval 15 --night-interval 60 --until 23:59"
+    # Absolute one-off campaign in IST. It waits for 23:00 on 17 Aug, runs 16
+    # 90-minute slots through 21:30 on 18 Aug, applies the requested 45-minute
+    # phase offset, then runs 16 slots from 23:45 through 22:15 on 19 Aug. The
+    # 23:15 hard stop prevents further calls even if the last sweep is slow.
+    #
+    # This calls all 2,003 MMRDA junctions plus the 16 existing WEH points:
+    # exactly 2,019 planned calls per normal sweep. The expected-count guards
+    # refuse all paid calls if either count differs. Durable slot claims prevent
+    # replay on restart; --stay-alive prevents Docker relaunching the closed
+    # campaign after it ends.
+    command: "python -m src.data.collect_campaign --campaign mmrda_20260817_48h_offset45 --start 2026-08-17T23:00:00+05:30 --stop 2026-08-19T23:15:00+05:30 --interval-minutes 90 --offset-after-hours 24 --offset-minutes 45 --expected-junctions 2003 --corridor-points 16 --expected-calls-per-sweep 2019 --late-grace-minutes 5 --scope mmrda --provider here --stay-alive"
 
 volumes:
   traffic-data:
