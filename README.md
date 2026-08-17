@@ -346,19 +346,24 @@ uvicorn src.web.app:app --host 0.0.0.0 --port 8000
 | Route | What it serves |
 |-------|----------------|
 | `/` | Live dashboard — the two segments, congested circuits, scenario table |
-| `/map` | **The corridor map** — interactive WebGL observatory (see §7.6.1) |
+| `/map` | **The coverage map** — BMC/MMRDA major intersections plus the WEH observatory (see §7.6.1) |
 | `/report` | The full self-contained stakeholder report |
 | `/api/segments` | Segment summary JSON (peak vs average) |
 | `/api/scenarios` | Scenario-comparison JSON (incl. queue lengths) |
-| `/api/map/{name}` | Map payloads: `network`, `intersections`, `frames`, `od`, `here`, `summary` |
+| `/api/map/{name}` | Map payloads: `network`, `intersections`, `frames`, `od`, `here`, `coverage`, `summary` |
 | `/api/health` | Liveness + which outputs are present |
 
-### 7.6.1 The corridor map — the stakeholder centerpiece
+### 7.6.1 BMC/MMRDA coverage map — the stakeholder centerpiece
 
 `/map` is a full-screen, dark WebGL map (deck.gl) built for presentations to the
 municipal corporation. The road network itself is the basemap, so it needs **no
-internet and no tile service**. It shows, in separate toggleable layers, always
-labeled **MEASURED** or **MODELED**:
+internet and no tile service**. A two-way **BMC / MMRDA** control changes the map
+extent and regional inventory; MMRDA is the containing view, so every BMC junction
+also appears there. The regional layer begins with real OSM geometry but no traffic
+values: hollow junction markers explicitly say **awaiting first reading**.
+
+The original WEH evidence remains available in separate layers, always labeled
+**MEASURED** or **MODELED**:
 
 - the **speed film** — measured WEH speeds replayed by time of day (▶ under the map);
 - **probe animation** — light streaks that physically slow down where traffic does;
@@ -366,6 +371,32 @@ labeled **MEASURED** or **MODELED**:
 - **queue lengths** — the standing queue on each over-capacity approach, drawn
   to physical scale on the road it occupies (one continuous jam = one band);
 - **HERE road speeds**, **sample points**, and **OD flow arcs**.
+
+Generate or refresh the geometry-only inventory, then collect provider readings. No paid
+traffic call is made by the inventory command. Manual bounded batches remain available
+for testing:
+
+```bash
+python -m src.network.coverage --download
+python -m src.data.collect_intersections --scope bmc --limit 50 --offset 0 --provider here
+python -m src.data.collect_intersections --scope mmrda --limit 50 --offset 50 --provider here
+```
+
+Regional readings use a dedicated `intersection_readings` table and never enter the
+legacy WEH `flow_readings` table. Only successful HERE/TomTom responses fill a marker;
+failed or unattempted junctions remain unchanged.
+
+The deployed collector is broader than the manual examples: every scheduled sweep calls
+all **2,003 MMRDA junctions**, which automatically includes all **867 BMC junctions**, as
+well as the 16 existing WEH samples. `HERE_MONTHLY_CALL_LIMIT=0` in `docker-compose.yml`
+means there is no client-side monthly stop; usage is still counted in SQLite and provider
+failure/back-off protection remains active. Preview that exact no-call schedule with:
+
+```bash
+python -m src.data.collect_day --n 16 --intersection-scope mmrda \
+  --all-intersections --peak-interval 15 --offpeak-interval 15 \
+  --night-interval 60 --until 23:59 --dry-run
+```
 
 Side panels: Overview (headline tiles + cost basis), Junctions (ranked worst
 junctions, click to fly there), Day (time–space diagram of the corridor), Data
@@ -385,14 +416,20 @@ map updates; every view degrades gracefully while its data is still missing.
 **Deploy with Docker:**
 
 ```bash
-docker build -t mumbai-traffic .
-docker run -p 8000:8000 mumbai-traffic          # open http://localhost:8000
+docker compose up --build -d
+# dashboard: http://localhost:8100
+# verify collection: curl http://localhost:8100/api/health
 ```
 
+The `web` and `collector` services share the persistent SQLite/data volume. Set
+`HERE_API_KEY` on the collector service; the compose command starts full-inventory MMRDA
+collection automatically and restarts it after a server reboot.
+
 **Deploy to a PaaS** (Render / Railway / Fly.io): the repo includes a `Procfile` and
-`Dockerfile`. Point the platform at the repo; it honours `$PORT` automatically. For live
-weekday data on the host, add the cron jobs from `scripts/crontab.example` (set the box to
-`Asia/Kolkata`), and supply `TOMTOM_API_KEY` as an environment variable.
+`Dockerfile`. Point the platform at the repo; it honours `$PORT` automatically. Deploy
+the two services described in `docker-compose.yml` (or use its collector command as a
+worker service), set the timezone to `Asia/Kolkata`, and supply `HERE_API_KEY` only to
+the collector.
 
 ---
 

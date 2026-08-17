@@ -12,7 +12,12 @@ never writes to the readings DB. It folds together
     data/raw/google/route_matrix/*.json                measured OD travel times
     data/processed/od_matrix.csv                       modeled demand (for arcs)
 
-into data/processed/map/*.json, which /map serves. Every payload degrades to an
+into data/processed/map/*.json, which /map serves. The regional ``coverage``
+payload is different from the corridor model: it is an OSM inventory of major
+roads and junction locations, enriched only with provider readings that really
+exist in SQLite. No traffic value is imputed for an uncollected junction.
+
+Every payload degrades to an
 empty-but-valid structure when its source is missing, so the page renders on
 day one and simply fills in as collection proceeds.
 
@@ -359,6 +364,83 @@ def build_here() -> dict:
     return {"links": list(by_key.values())}
 
 
+def build_coverage() -> dict:
+    """Return the nested BMC/MMRDA OSM inventory plus real latest readings.
+
+    ``src.network.coverage`` owns the geometry snapshot and writes it to the
+    coverage payload path. This exporter only joins successful provider
+    observations from the separate ``intersection_readings`` table. Missing
+    geometry or missing readings stay visibly empty; traffic is never inferred.
+    """
+    p = MAP_DIR / "coverage.json"
+    if p.exists():
+        with p.open(encoding="utf-8") as f:
+            coverage = json.load(f)
+    else:
+        coverage = {
+            "generated_utc": None,
+            "source": "OpenStreetMap",
+            "note": "Run: python -m src.network.coverage --download",
+            "scopes": {
+                "bmc": {"label": "BMC", "junction_count": 0,
+                        "collected_count": 0},
+                "mmrda": {"label": "MMRDA", "junction_count": 0,
+                          "collected_count": 0},
+            },
+            "links": [],
+            "junctions": [],
+        }
+
+    # Imported lazily so a map export can still render its empty-state payload
+    # in a minimal environment where only the static geometry file is present.
+    from src.data import store
+
+    latest = store.load_latest_intersection_readings()
+    latest_by_id = {}
+    if not latest.empty:
+        for row in latest.to_dict(orient="records"):
+            def json_value(key: str):
+                value = row.get(key)
+                if value is None or pd.isna(value):
+                    return None
+                return value.item() if hasattr(value, "item") else value
+
+            point_id = str(row.get("point_id", ""))
+            latest_by_id[point_id] = {
+                "run_id": json_value("run_id"),
+                "fetched_utc": json_value("fetched_utc"),
+                "provider": json_value("provider"),
+                "current_speed_kph": json_value("current_speed_kph"),
+                "free_speed_kph": json_value("free_speed_kph"),
+                "tti": json_value("tti"),
+                "confidence": json_value("confidence"),
+                "road_closure": (bool(row["road_closure"])
+                                 if pd.notna(row.get("road_closure")) else None),
+            }
+
+    junctions = []
+    for junction in coverage.get("junctions", []):
+        observation = latest_by_id.get(str(junction.get("id", "")))
+        if observation:
+            junctions.append({**junction, "status": "collected",
+                              "latest": observation})
+        else:
+            clean = {k: v for k, v in junction.items() if k != "latest"}
+            junctions.append({**clean, "status": "awaiting_collection"})
+    coverage["junctions"] = junctions
+
+    bmc_total = sum(bool(j.get("in_bmc")) for j in junctions)
+    bmc_collected = sum(bool(j.get("in_bmc")) and j.get("status") == "collected"
+                        for j in junctions)
+    mmrda_collected = sum(j.get("status") == "collected" for j in junctions)
+    scopes = coverage.setdefault("scopes", {})
+    scopes.setdefault("bmc", {}).update({"junction_count": bmc_total,
+                                          "collected_count": bmc_collected})
+    scopes.setdefault("mmrda", {}).update({"junction_count": len(junctions),
+                                            "collected_count": mmrda_collected})
+    return coverage
+
+
 def build_summary(meta: dict, intersections: dict, frames: dict,
                   od: dict, here: dict) -> dict:
     nodes = intersections["nodes"]
@@ -409,7 +491,8 @@ def build_summary(meta: dict, intersections: dict, frames: dict,
 
 # --- orchestration -------------------------------------------------------------
 
-PAYLOADS = ("network", "intersections", "frames", "od", "here", "summary")
+PAYLOADS = ("network", "intersections", "frames", "od", "here", "coverage",
+            "summary")
 
 
 def export(rebuild: bool = False, verbose: bool = True) -> dict[str, Path]:
@@ -426,6 +509,7 @@ def export(rebuild: bool = False, verbose: bool = True) -> dict[str, Path]:
         "frames": build_frames(),
         "od": build_od(),
         "here": build_here(),
+        "coverage": build_coverage(),
     }
     payloads["summary"] = build_summary(meta, payloads["intersections"],
                                         payloads["frames"], payloads["od"],
@@ -462,9 +546,10 @@ def export_standalone(out_path: Path | None = None, verbose: bool = True) -> Pat
     deck = _inline((WEB / "static" / "vendor" / "deck.min.js").read_text(encoding="utf-8"))
 
     html = f"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8">
+<html lang="en" style="color-scheme: dark"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>WEH Corridor — Live Model</title>
+<meta name="theme-color" content="#0d0d0d">
+<title>Greater Mumbai — Mumbai Traffic Observatory</title>
 <style>{css}</style>
 </head><body>
 <div id="shell"></div>

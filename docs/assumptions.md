@@ -5,7 +5,7 @@ why, and what would change it. This is a living document — update it as the mo
 
 | # | Assumption | Rationale | Revisit when |
 |---|-----------|-----------|--------------|
-| A1 | Pilot corridor only (WEH Dahisar→Bandra), not full MMR | Scope control; validate architecture before scaling | Corridor baseline meets success criteria (plan §11) |
+| A1 | Traffic assignment remains a WEH Dahisar→Bandra pilot; the wider BMC/MMRDA map is an OSM junction inventory only | Regional geometry can guide fresh collection without inventing traffic conditions outside the calibrated corridor | Expand assignment only after enough real intersection readings and OD evidence have been collected |
 | A2 | Fixed OD demand before/after interventions (no induced demand) | Correct elasticity needs data we don't have yet; flagged limitation | Adding demand elasticity upgrade (plan §7) |
 | A3 | Static User Equilibrium (not Dynamic Traffic Assignment) | Sufficient for "which link is the bottleneck?"; DTA needs time-varying OD | Time-of-day profiles / operational module added |
 | A4 | Lane count used directly; road width never measured | No API provides width; OSM tags `lanes=*`; effective width handled via capacity reduction factor | Never (settled decision D3) |
@@ -27,3 +27,8 @@ why, and what would change it. This is a living document — update it as the mo
 - Raw extract: **15,106 nodes / 33,788 edges / ~2,954 km** — includes full residential fabric.
   Phase 1 will trim to the ~50–200 major links (motorway/trunk/primary/secondary) that carry corridor traffic.
 - Edge speeds/travel times from `ox.add_edge_speeds` + `ox.add_edge_travel_times` (imputed free-flow, pre-calibration).
+- The BMC/MMRDA coverage inventory uses OSM only for road geometry, names, classes, and
+  junction locations. It assigns no traffic values. A junction remains **awaiting collection**
+  until a HERE or TomTom request succeeds at that location.
+- BMC membership is stored explicitly and the MMRDA view is constructed as the union of
+  BMC and MMRDA-only locations; therefore every BMC junction also appears in MMRDA.

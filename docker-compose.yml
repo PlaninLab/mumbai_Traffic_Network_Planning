@@ -5,8 +5,9 @@
 #   web        read-only dashboard + report + JSON API. Holds no API key: the
 #              app never calls a paid provider, so the public-facing container
 #              has nothing to leak.
-#   collector  the metered process. Samples the WEH every 15 min by day and
-#              hourly overnight, writes the SQLite store, refreshes the summary.
+#   collector  the metered process. Each sweep samples the WEH and every mapped
+#              MMRDA junction (which includes BMC), writes both to the SQLite
+#              store, and refreshes the corridor summary.
 #
 # The volumes are the only shared state. Both must mount BOTH: the collector
 # writes traffic.db and segment_overview.json, and the web service reads them.
@@ -29,10 +30,11 @@ services:
       # deployment's log arrived in bursts an hour apart for exactly this
       # reason, which made a silent collector impossible to diagnose live.
       PYTHONUNBUFFERED: "1"
-      # Read-only view of the same counter the collector writes, so /data and
-      # /api/health can report usage against the cap. No API key here: app.py
-      # never calls a paid provider, so the public container can spend nothing.
-      HERE_MONTHLY_CALL_LIMIT: "38000"
+      # Keep usage visible in /data without imposing a client-side monthly cap.
+      # No API key is present here, so the public container cannot spend anything.
+      HERE_MONTHLY_CALL_LIMIT: "0"
+      REGIONAL_COLLECTION_SCOPE: "mmrda"
+      REGIONAL_COLLECTION_MODE: "all_intersections_each_sweep"
     volumes:
       - traffic-data:/app/data/processed
       - traffic-csv:/app/data/raw/tomtom/collected
@@ -65,16 +67,19 @@ services:
       # fail every sweep. Leaving it undeclared lets the platform inject it.
       # Set it on the `collector` service: Apps & Services -> collector -> Environment.
       #
-      # Hard stop on metered calls. The count lives in traffic.db on the volume,
-      # so it survives the restarts this policy causes. See src/data/budget.py.
-      HERE_MONTHLY_CALL_LIMIT: "38000"
+      # Explicit zero means no client-side monthly cap. Calls are still metered
+      # in traffic.db and provider failure/back-off protections remain active.
+      HERE_MONTHLY_CALL_LIMIT: "0"
     volumes:
       - traffic-data:/app/data/processed
       - traffic-csv:/app/data/raw/tomtom/collected
     # --until MUST stay explicit. Omitted, _end_time() returns 23:59 today and
     # never rolls forward, so a restart inside that minute exits immediately and
     # `unless-stopped` spins. Passing it takes the branch that adds a day.
-    command: "python -m src.data.collect_day --n 16 --provider here --peak-interval 15 --offpeak-interval 15 --night-interval 60 --until 23:59"
+    # Preserve all 16 existing WEH points and request the complete MMRDA
+    # inventory on every sweep. MMRDA contains every BMC junction, so one command
+    # covers all 2,003 mapped junctions without creating placeholder readings.
+    command: "python -m src.data.collect_day --n 16 --intersection-scope mmrda --all-intersections --provider here --peak-interval 15 --offpeak-interval 15 --night-interval 60 --until 23:59"
 
 volumes:
   traffic-data:

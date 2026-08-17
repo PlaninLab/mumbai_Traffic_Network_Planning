@@ -1,9 +1,12 @@
-/* map_app.js — Mumbai Traffic Observatory (WEH corridor).
+/* map_app.js — Mumbai Traffic Observatory (Greater Mumbai + WEH corridor).
  *
  * Pure deck.gl, no basemap tiles: the modeled road network IS the basemap, so
  * the page renders with zero internet access (meeting-room safe).
  *
  * Data source: window.__MAP_DATA__ (standalone file) or /api/map/* (server).
+ * BMC is a strict subset of the wider MMRDA context inventory. Context roads
+ * and junctions never imply a traffic reading; measurements appear only after
+ * a real collector result is attached to a junction.
  * Every view separates MEASURED (probe speeds) from MODELED (equilibrium
  * volumes, queue lengths) — the two words appear on every layer and tile.
  */
@@ -27,6 +30,14 @@
       [44, 44, 40],   // secondary
       [40, 40, 37],   // tertiary
       [33, 33, 31],   // other
+    ],
+    coverageCls: [
+      [67, 67, 62],   // motorway
+      [59, 59, 55],   // trunk
+      [55, 55, 51],   // primary
+      [48, 48, 45],   // secondary
+      [43, 43, 40],   // tertiary
+      [37, 37, 35],   // other
     ],
     nodata: [58, 58, 54],
   };
@@ -81,8 +92,9 @@
   const S = {
     data: null,
     tab: "overview",
-    show: { film: true, probes: true, model: true, columns: true, queues: true,
-            here: false, od: false, points: false },
+    scope: "mmrda",
+    show: { coverage: true, major: true, film: true, probes: true, model: true,
+            columns: true, queues: true, here: false, od: false, points: false },
     is3D: true,
     cinema: false,
     binIdx: -1,
@@ -91,7 +103,7 @@
     animT: 0,
     viewState: {
       longitude: 72.861, latitude: 19.149, zoom: 11.65,
-      pitch: 50, bearing: -20, minZoom: 9.3, maxZoom: 17,
+      pitch: 50, bearing: -20, minZoom: 6, maxZoom: 17,
     },
   };
 
@@ -103,7 +115,7 @@
   // ---- data loading ----------------------------------------------------------
   async function loadAll() {
     if (window.__MAP_DATA__) return window.__MAP_DATA__;
-    const names = ["network", "intersections", "frames", "od", "here", "summary"];
+    const names = ["network", "intersections", "frames", "od", "here", "summary", "coverage"];
     const out = {};
     await Promise.all(names.map(async (n) => {
       const r = await fetch("/api/map/" + n);
@@ -167,6 +179,112 @@
              maxFlow, maxVol, maxArc };
   }
 
+  function junctionHasReading(n) {
+    return Boolean(n && n.latest && typeof n.latest === "object");
+  }
+
+  function junctionTTI(n) {
+    if (!junctionHasReading(n)) return null;
+    const v = Number(n.latest.tti);
+    return Number.isFinite(v) ? v : null;
+  }
+
+  function coverageForScope(scope) {
+    const coverage = S.data.coverage || {};
+    const onlyBmc = (scope || S.scope) === "bmc";
+    const inScope = (row) => !onlyBmc || row.in_bmc === true;
+    return {
+      links: (coverage.links || []).filter(inScope),
+      junctions: (coverage.junctions || []).filter(inScope),
+    };
+  }
+
+  function areaLabelsForScope(scope, zoom) {
+    const key = scope || S.scope;
+    const z = Number(zoom == null ? S.viewState.zoom : zoom);
+    const coverage = S.data && S.data.coverage || {};
+    const source = Array.isArray(coverage.area_labels) && coverage.area_labels.length
+      ? coverage.area_labels
+      : (S.data && S.data.od && S.data.od.zones || []).map((place, index) => ({
+          id: "corridor-label-" + index,
+          name: place.name,
+          lat: place.lat,
+          lon: place.lon - 0.024,
+          kind: "locality",
+          min_zoom: 10.3,
+          scopes: ["mmrda", "bmc"],
+        }));
+    return source.filter((place) => {
+      const scopes = Array.isArray(place.scopes) ? place.scopes : ["mmrda"];
+      const inScope = key === "mmrda" ? scopes.includes("mmrda") : scopes.includes("bmc");
+      const minZoom = numberFrom(place, ["min_zoom"], 0);
+      const maxZoom = numberFrom(place, ["max_zoom"], Infinity);
+      return inScope && z >= minZoom && z < maxZoom;
+    });
+  }
+
+  function numberFrom(obj, keys, fallback) {
+    for (const key of keys) {
+      const value = Number(obj && obj[key]);
+      if (Number.isFinite(value)) return value;
+    }
+    return fallback;
+  }
+
+  function scopePresentation(scope) {
+    const key = scope || S.scope;
+    const coverage = S.data && S.data.coverage || {};
+    const meta = coverage.scopes && coverage.scopes[key] || {};
+    const labels = meta.labels || {};
+    const defaults = key === "bmc"
+      ? {
+          short: "BMC",
+          name: "BMC area",
+          copy: "Municipal Greater Mumbai · a subset of the MMRDA planning area",
+        }
+      : {
+          short: "MMRDA",
+          name: "MMRDA area",
+          copy: "Metropolitan planning area · includes every BMC junction",
+        };
+    const labelString = typeof labels === "string" ? labels : null;
+    return {
+      key,
+      short: meta.short_label || labels.short || labels.abbreviation || defaults.short,
+      name: meta.label || labelString || labels.title || labels.name || defaults.name,
+      copy: meta.description || labels.description || labels.subtitle || labels.copy || defaults.copy,
+      view: meta.view || {},
+      meta,
+    };
+  }
+
+  function scopeCounts(scope) {
+    const p = scopePresentation(scope);
+    const rows = coverageForScope(p.key);
+    const counts = p.meta.counts || {};
+    const computedCollected = rows.junctions.filter(junctionHasReading).length;
+    const junctions = numberFrom(counts,
+      ["junctions", "major_intersections", "intersections"],
+      numberFrom(p.meta, ["junction_count"], rows.junctions.length));
+    const collected = numberFrom(counts,
+      ["collected", "collected_junctions", "measured", "measured_junctions"],
+      numberFrom(p.meta, ["collected_count"], computedCollected));
+    return {
+      links: numberFrom(counts, ["links", "road_links", "roads"],
+        numberFrom(p.meta, ["link_count"], rows.links.length)),
+      junctions,
+      collected,
+      awaiting: numberFrom(counts,
+        ["awaiting", "awaiting_junctions", "uncollected", "uncollected_junctions"],
+        Math.max(0, junctions - collected)),
+    };
+  }
+
+  function roadClassIndex(link) {
+    const cls = Number(link && link.cls);
+    return Number.isFinite(cls) ? Math.max(0, Math.min(5, cls)) : 5;
+  }
+
   function currentBin() {
     const bins = S.data.frames.bins || [];
     if (!bins.length || S.binIdx < 0 || S.binIdx >= bins.length) return null;
@@ -204,8 +322,25 @@
     const layers = [];
     const bin = currentBin();
     const pulse = 0.6 + 0.3 * Math.sin((S.animT * 2 * Math.PI) / 1.6);
+    const context = coverageForScope();
 
-    // Base fabric: the network itself is the basemap.
+    // Real OSM context for the selected jurisdiction. These links have no
+    // inferred flow, speed or congestion values.
+    if (S.show.coverage) {
+      layers.push(new deck.PathLayer({
+        id: "coverage-links",
+        data: context.links,
+        getPath: (l) => l.p,
+        getColor: (l) => COL.coverageCls[roadClassIndex(l)],
+        getWidth: (l) => [13, 10, 8, 5.5, 3.5, 2.4][roadClassIndex(l)],
+        widthMinPixels: 0.55,
+        opacity: 0.82,
+        capRounded: true, jointRounded: true,
+        pickable: false,
+      }));
+    }
+
+    // The original WEH model network remains separate corridor evidence.
     layers.push(new deck.PathLayer({
       id: "base",
       data: d.network.links,
@@ -216,6 +351,35 @@
       capRounded: true, jointRounded: true,
       pickable: false,
     }));
+
+    // Major-junction context is deliberately hollow until a real reading
+    // exists. A filled marker then uses the reading's measured TTI.
+    if (S.show.major) {
+      layers.push(new deck.ScatterplotLayer({
+        id: "major-junctions",
+        data: context.junctions,
+        getPosition: (n) => [n.lon, n.lat],
+        getRadius: (n) => junctionHasReading(n) ? 82 : 65,
+        radiusMinPixels: 3.5,
+        radiusMaxPixels: 10,
+        stroked: true,
+        filled: true,
+        getFillColor: (n) => junctionHasReading(n)
+          ? [...ttiColor(junctionTTI(n)), 235] : [13, 13, 13, 0],
+        getLineColor: (n) => junctionHasReading(n)
+          ? [220, 220, 211, 235] : [181, 179, 170, 225],
+        getLineWidth: (n) => junctionHasReading(n) ? 1.2 : 2.4,
+        lineWidthMinPixels: 1.2,
+        pickable: true,
+        autoHighlight: true,
+        highlightColor: [255, 255, 255, 45],
+        updateTriggers: {
+          getRadius: S.scope,
+          getFillColor: S.scope,
+          getLineColor: S.scope,
+        },
+      }));
+    }
 
     // Modeled volume + V/C on every link that carries flow.
     if (S.show.model) {
@@ -354,19 +518,49 @@
       }));
     }
 
-    // Locality labels — orientation without any basemap.
-    layers.push(new deck.TextLayer({
-      id: "labels",
-      data: d.od.zones,
-      getPosition: (z) => [z.lon - 0.024, z.lat],
-      getText: (z) => z.name.toUpperCase(),
-      getSize: 11,
-      getColor: [137, 135, 129, 220],
-      getTextAnchor: "end",
+    // Direct geographic labels — orientation without any basemap. Wide MMRDA
+    // views show city/town anchors; closer BMC views reveal localities. The
+    // established, manually placed label rail is kept in its own layer so it
+    // never disappears when the finer neighbourhood layer is decluttered.
+    const visibleAreaLabels = areaLabelsForScope();
+    const hasManualPlacement = (place) => {
+      const offset = Array.isArray(place.pixel_offset) ? place.pixel_offset : [0, 0];
+      return Math.abs(offset[0]) + Math.abs(offset[1]) > 0;
+    };
+    const areaLabelStyle = {
+      getPosition: (place) => [place.lon, place.lat],
+      getText: (place) => place.name.toUpperCase(),
+      getColor: (place) => place.kind === "city"
+        ? [151, 149, 141, 225] : [126, 124, 118, 215],
+      getPixelOffset: (place) => place.pixel_offset || [0, 0],
+      getTextAnchor: (place) => place.text_anchor || "middle",
       getAlignmentBaseline: "center",
       fontFamily: "system-ui, sans-serif",
-      fontWeight: 600,
+      fontWeight: 650,
+      fontSettings: { sdf: true, fontSize: 64, buffer: 4 },
+      outlineWidth: 2.5,
+      outlineColor: [13, 13, 13, 235],
       billboard: true,
+    };
+    layers.push(new deck.TextLayer({
+      id: "area-labels",
+      data: visibleAreaLabels.filter(hasManualPlacement),
+      ...areaLabelStyle,
+      getSize: (place) => place.kind === "city" ? 12 : 10.5,
+    }));
+    layers.push(new deck.TextLayer({
+      id: "area-detail-labels",
+      data: visibleAreaLabels.filter((place) => !hasManualPlacement(place)),
+      ...areaLabelStyle,
+      getSize: (place) => place.kind === "town" ? 10.5 : 9.5,
+      extensions: [new deck.CollisionFilterExtension()],
+      collisionGroup: "area-detail-labels",
+      collisionTestProps: { sizeScale: 1.5 },
+      getCollisionPriority: (place) => {
+        if (place.kind === "town") return 700;
+        const minZoom = numberFrom(place, ["min_zoom"], 10);
+        return Math.max(100, 700 - (minZoom - 8) * 100);
+      },
     }));
 
     return layers;
@@ -377,6 +571,39 @@
     if (!o) return null;
     const id = info.layer && info.layer.id;
     const bin = currentBin();
+    if (id === "major-junctions") {
+      const roads = Array.isArray(o.roads) ? o.roads.filter(Boolean).join(" · ") : o.roads;
+      const classes = Array.isArray(o.classes) ? o.classes.filter(Boolean).join(", ") : o.classes;
+      const context = (roads || classes)
+        ? "<br><span class='tt-k'>roads</span> " + esc(roads || classes)
+        : "";
+      if (!junctionHasReading(o)) {
+        return { html:
+          "<b>" + esc(o.name || "Major intersection") + "</b><br>" +
+          "<span class='tt-status awaiting'>○ Awaiting first reading</span>" + context + "<br>" +
+          "<span class='tt-k'>OpenStreetMap context only · no synthetic traffic data</span>" };
+      }
+      const latest = o.latest;
+      const speed = latest.current_speed_kph != null ? latest.current_speed_kph
+        : (latest.kph != null ? latest.kph : latest.speed_kph);
+      const free = latest.free_speed_kph != null ? latest.free_speed_kph
+        : (latest.free_kph != null ? latest.free_kph : latest.free_flow_kph);
+      const observed = latest.fetched_utc || latest.observed_at_ist ||
+        latest.timestamp_ist || latest.collected_at || latest.timestamp;
+      const provider = latest.provider || latest.source;
+      const confidence = latest.confidence;
+      const closure = latest.road_closure;
+      return { html:
+        "<b>" + esc(o.name || "Major intersection") + "</b><br>" +
+        "<span class='tt-status collected'>● Measured reading</span>" + context + "<br>" +
+        "<span class='tt-k'>speed</span> <b>" + fmt1(speed) + "</b> km/h" +
+        (free != null ? " (free-flow " + fmt1(free) + ")" : "") + "<br>" +
+        "<span class='tt-k'>TTI</span> <b>" + fmt1(junctionTTI(o)) + "</b>" +
+        (provider ? " · " + esc(provider) : "") +
+        (confidence != null ? "<br><span class='tt-k'>confidence</span> " + fmt1(confidence) : "") +
+        (closure != null ? "<br><span class='tt-k'>road closure</span> " + (closure ? "reported" : "not reported") : "") +
+        (observed ? "<br><span class='tt-k'>observed</span> " + esc(observed) : "") };
+    }
     if (id === "columns" || id === "selected") {
       return { html:
         "<b>" + esc(o.name) + "</b><br>" +
@@ -436,6 +663,38 @@
     setView({ longitude: lon, latitude: lat, zoom: zoom || 13.6, ...t });
   }
 
+  function moveToScope(scope, animate) {
+    const view = scopePresentation(scope).view;
+    const next = {};
+    const normalizedView = {
+      ...view,
+      longitude: view.longitude != null ? view.longitude : view.lon,
+      latitude: view.latitude != null ? view.latitude : view.lat,
+    };
+    ["longitude", "latitude", "zoom", "bearing", "pitch"].forEach((key) => {
+      const value = Number(normalizedView[key]);
+      if (Number.isFinite(value)) next[key] = value;
+    });
+    if (next.pitch == null) next.pitch = S.is3D ? 50 : 0;
+    if (animate && deck.FlyToInterpolator) {
+      next.transitionDuration = 900;
+      next.transitionInterpolator = new deck.FlyToInterpolator();
+    }
+    if (deckgl) setView(next);
+    else S.viewState = { ...S.viewState, ...next };
+  }
+
+  function setScope(scope) {
+    if (scope !== "bmc" && scope !== "mmrda") return;
+    S.scope = scope;
+    moveToScope(scope, true);
+    renderChrome();
+    renderLayerBox();
+    renderLegend();
+    renderPanel();
+    renderLayers();
+  }
+
   // ---- DOM shell -------------------------------------------------------------
   function el(tag, cls, html) {
     const e = document.createElement(tag);
@@ -450,11 +709,15 @@
       '<div class="hdr">' +
       '  <div class="mark"></div>' +
       '  <div><h1>Mumbai Traffic Observatory</h1></div>' +
-      '  <div class="sub">Western Express Highway · Dahisar → Bandra · 24 km</div>' +
+      '  <div class="sub scope-copy" id="scope-copy" aria-live="polite"></div>' +
       '  <div class="spacer"></div>' +
+      '  <div class="scope-control" role="group" aria-label="Map coverage area">' +
+      '    <button type="button" class="scope-segment" data-scope="bmc" aria-label="Show BMC area" aria-pressed="false">BMC</button>' +
+      '    <button type="button" class="scope-segment" data-scope="mmrda" aria-label="Show MMRDA area" aria-pressed="true">MMRDA</button>' +
+      "  </div>" +
       (window.__MAP_DATA__ ? "" : '  <a href="/">Dashboard</a>') +
-      '  <button class="btn" id="btn3d"></button>' +
-      '  <button class="btn" id="btncine">Cinematic</button>' +
+      '  <button type="button" class="btn" id="btn3d">2D view</button>' +
+      '  <button type="button" class="btn" id="btncine">Cinematic</button>' +
       "</div>" +
       '<div class="main">' +
       '  <div class="panel">' +
@@ -478,6 +741,9 @@
     shell.querySelectorAll(".tabs button").forEach((b) => {
       b.onclick = () => { S.tab = b.dataset.tab; renderPanel(); };
     });
+    shell.querySelectorAll(".scope-segment").forEach((b) => {
+      b.onclick = () => setScope(b.dataset.scope);
+    });
     document.getElementById("btn3d").onclick = () => {
       S.is3D = !S.is3D;
       setView({ pitch: S.is3D ? 50 : 0, transitionDuration: 600 });
@@ -493,26 +759,48 @@
     b3.textContent = S.is3D ? "2D view" : "3D view";
     const bc = document.getElementById("btncine");
     bc.classList.toggle("on", S.cinema);
+    bc.setAttribute("aria-pressed", String(S.cinema));
+    if (!S.data) return;
+    const p = scopePresentation();
+    const counts = scopeCounts();
+    const copy = document.getElementById("scope-copy");
+    if (copy) {
+      copy.textContent = p.name + " · " + fmt(counts.junctions) +
+        " major intersections · " + fmt(counts.awaiting) + " awaiting first reading";
+    }
+    document.querySelectorAll(".scope-segment").forEach((button) => {
+      const key = button.dataset.scope;
+      const item = scopePresentation(key);
+      const itemCounts = scopeCounts(key);
+      const active = key === S.scope;
+      button.setAttribute("aria-pressed", String(active));
+      button.setAttribute("aria-label", "Show " + item.name + ", " +
+        fmt(itemCounts.junctions) + " major intersections");
+      button.innerHTML = '<span class="scope-label">' + esc(item.short) + '</span>' +
+        '<span class="scope-count" aria-hidden="true">' + fmt(itemCounts.junctions) + "</span>";
+    });
   }
 
   // ---- layer toggles + legend -------------------------------------------------
   const LAYER_DEFS = [
-    ["film", "Speed film (WEH)", "measured"],
-    ["probes", "Probe animation", "measured"],
-    ["here", "Road speeds (HERE)", "measured"],
-    ["points", "Sample points", "measured"],
-    ["model", "Link volume · V/C", "modeled"],
-    ["columns", "Intersection volumes", "modeled"],
-    ["queues", "Queue lengths", "modeled"],
-    ["od", "OD flows", "modeled"],
+    ["coverage", "Coverage network", "context", "OSM"],
+    ["major", "Major intersections", "context", "OSM + M"],
+    ["film", "Speed film (WEH)", "measured", "M"],
+    ["probes", "Probe animation", "measured", "M"],
+    ["here", "Road speeds (HERE)", "measured", "M"],
+    ["points", "Sample points", "measured", "M"],
+    ["model", "Link volume · V/C", "modeled", "MOD"],
+    ["columns", "Intersection volumes", "modeled", "MOD"],
+    ["queues", "Queue lengths", "modeled", "MOD"],
+    ["od", "OD flows", "modeled", "MOD"],
   ];
 
   function renderLayerBox() {
     const box = document.getElementById("layerbox");
-    box.innerHTML = "<h2>Layers</h2>" + LAYER_DEFS.map(([k, label, tag]) =>
+    box.innerHTML = "<h2>Layers</h2>" + LAYER_DEFS.map(([k, label, tag, tagLabel]) =>
       '<label><input type="checkbox" data-k="' + k + '"' +
       (S.show[k] ? " checked" : "") + "> " + label +
-      ' <span class="badge ' + tag + ' tag">' + (tag === "measured" ? "M" : "MOD") + "</span></label>"
+      ' <span class="badge ' + tag + ' tag">' + tagLabel + "</span></label>"
     ).join("");
     box.querySelectorAll("input").forEach((i) => {
       i.onchange = () => { S.show[i.dataset.k] = i.checked; renderLayers(); };
@@ -530,6 +818,8 @@
       row(HEX.serious, "Congested · 1.5–2.0") +
       row(HEX.critical, "Jammed · ≥ 2.0") +
       '<div class="row" style="margin-top:6px"><span class="sw" style="background:#3a3a36"></span>No sample yet</div>' +
+      '<div class="row junction-key" style="margin-top:8px"><span class="jmark measured"></span>Measured intersection · fill = TTI</div>' +
+      '<div class="row junction-key"><span class="jmark awaiting"></span>Awaiting first reading</div>' +
       '<div class="row" style="margin-top:8px;color:var(--muted)">Column height = arriving PCU/h</div>' +
       '<div class="row" style="color:var(--muted)">Red band = queue, to scale</div>';
   }
@@ -620,6 +910,8 @@
     const sm = S.data.summary;
     const m = sm.model;
     const g = (S.data.od.google || [])[0];
+    const scope = scopePresentation();
+    const coverage = scopeCounts();
 
     let corridorTile;
     if (g) {
@@ -634,6 +926,17 @@
     }
 
     body.innerHTML =
+      '<div class="sec scope-overview"><h2>' + esc(scope.name) + ' coverage</h2>' +
+      '<div class="scope-intro">' + esc(scope.copy) + '</div><div class="tiles">' +
+      tile(fmt(coverage.junctions),
+        "major intersections in this view <span class='badge context'>OSM CONTEXT</span>") +
+      tile(fmt(coverage.links),
+        "major-road links defining the coverage network <span class='badge context'>OSM CONTEXT</span>") +
+      tile(fmt(coverage.collected),
+        "junctions with a real latest reading <span class='badge measured'>MEASURED</span>") +
+      tile(fmt(coverage.awaiting),
+        "awaiting first reading — no traffic value has been invented", true) +
+      '</div><div class="scope-assurance"><span aria-hidden="true">○</span> New junctions remain context-only until collection starts.</div></div>' +
       '<div class="sec"><h2>The corridor right now</h2><div class="tiles">' +
       corridorTile +
       tile(fmt1(m.total_queue_km) + " <small>km</small>",
@@ -645,6 +948,7 @@
         "junctions monitored — volume + queue computed for each <span class='badge modeled'>MODELED</span>", true) +
       "</div></div>" +
       '<div class="sec"><h2>How to read this map</h2><div class="note">' +
+      "<b>Coverage network + hollow circles</b> — real OpenStreetMap major roads and intersections for the selected BMC/MMRDA area. A hollow circle is awaiting its first reading.<br><br>" +
       "<b>Colored spine</b> — measured probe speed on the WEH, by time of day (play it below the map).<br><br>" +
       "<b>Columns</b> — vehicles arriving at each intersection per hour, from one calibrated equilibrium run.<br><br>" +
       "<b>Red bands</b> — the standing queue on each over-capacity approach, drawn to physical scale on the road it occupies." +
@@ -881,7 +1185,15 @@
     const asm = S.data.summary.cost.assumptions;
     const kv = (k, v) => '<div class="row"><span class="k">' + k +
       '</span><span class="v">' + v + "</span></div>";
+    const scope = scopePresentation();
+    const coverage = scopeCounts();
     body.innerHTML =
+      '<div class="sec"><h2>' + esc(scope.name) + ' inventory</h2><div class="kv">' +
+      kv("OSM major-road links", fmt(coverage.links)) +
+      kv("Major intersections", fmt(coverage.junctions)) +
+      kv("With a collected reading", fmt(coverage.collected)) +
+      kv("Awaiting first reading", fmt(coverage.awaiting)) +
+      '</div><div class="scope-assurance data-assurance"><span aria-hidden="true">○</span> No synthetic traffic readings are used for new intersections.</div></div>' +
       '<div class="sec"><h2>What has been collected</h2><div class="kv">' +
       kv("Speed readings (runs)", fmt(ms.n_runs)) +
       kv("Sample points on the WEH", fmt(ms.n_points)) +
@@ -995,6 +1307,7 @@
       return;
     }
     derived = derive(S.data);
+    moveToScope(S.scope, false);
     // Start at the worst collected bin, so the first view is the strongest one.
     const bins = S.data.frames.bins || [];
     if (bins.length) {
@@ -1008,8 +1321,13 @@
       views: new deck.MapView({ repeat: false }),
       viewState: S.viewState,
       onViewStateChange: ({ viewState }) => {
+        const before = areaLabelsForScope(S.scope, S.viewState.zoom)
+          .map((place) => place.id).join("|");
         S.viewState = viewState;
         deckgl.setProps({ viewState });
+        const after = areaLabelsForScope(S.scope, viewState.zoom)
+          .map((place) => place.id).join("|");
+        if (before !== after) renderLayers();
       },
       controller: true,
       layers: [],

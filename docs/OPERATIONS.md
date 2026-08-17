@@ -38,6 +38,20 @@ They do not depend on each other — the dashboard just reads whatever the colle
 python -m src.data.collect_day --dry-run
 ```
 
+The production Docker collector intentionally requests the complete mapped inventory on
+every sweep—2,003 MMRDA junctions, including all 867 BMC junctions—plus the 16 existing
+WEH samples:
+
+```bash
+python -m src.data.collect_day --n 16 --intersection-scope mmrda \
+  --all-intersections --peak-interval 15 --offpeak-interval 15 \
+  --night-interval 60 --until 23:59
+```
+
+Only successful provider observations are stored; it never creates placeholder traffic
+data. In `docker-compose.yml`, `HERE_MONTHLY_CALL_LIMIT=0` explicitly disables the
+client-side monthly stop while keeping call metering and provider back-off telemetry.
+
 ### Option A — run it in the foreground (you watch it)
 ```bash
 python -m src.data.collect_day --n 25 --until 23:00
@@ -113,6 +127,7 @@ python -m src.scenarios.evaluate --cost-source google  # scenarios on real Googl
 ```bash
 # preview plan/budget          python -m src.data.collect_day --dry-run
 # collect all day (HERE)       python -m src.data.collect_day --n 25 --until 23:00
+# collect every mapped point   ... --n 16 --intersection-scope mmrda --all-intersections
 # coarser nights               ... --peak-interval 15 --offpeak-interval 15 --night-interval 60
 # cap the monthly spend        ... --max-calls-month 38000   (or HERE_MONTHLY_CALL_LIMIT)
 # automate weekdays            powershell ... register_weekday_tasks.ps1 -FullDay

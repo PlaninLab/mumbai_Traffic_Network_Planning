@@ -7,11 +7,17 @@ Tracks the origin, vintage, and access method of every dataset used in the model
 | Dataset | Source | Vintage | Access | Status |
 |---------|--------|---------|--------|--------|
 | Corridor road graph | OpenStreetMap via Overpass (osmnx) | Live snapshot @ extraction | `src/network/build_network.py` | ✅ acquired (Phase 0) |
+| BMC/MMRDA major-road and junction inventory | OpenStreetMap via Overpass (osmnx) | Live snapshot @ extraction | `src/network/coverage.py` | ✅ geometry only; traffic readings start empty |
 | Lane counts (major links) | OSM `lanes=*` + Google satellite manual verify | — | Manual | ⬜ Phase 1 |
 | Link capacities | Computed: `lanes × per-lane capacity × PCU adj.` (IRC values) | — | Derived | ⬜ Phase 1 |
 
 **OSM extract provenance:** bbox N 19.270 / S 19.045 / E 72.885 / W 72.820, `network_type=drive`.
 Cached at `data/raw/osm/corridor.graphml` and `data/processed/network_corridor.gpkg`.
+
+The regional inventory is deliberately not a traffic model. OSM supplies only the real
+major-road topology and junction coordinates. Provider observations collected later are
+stored separately in SQLite; the UI never substitutes modeled or synthetic values for an
+uncollected regional junction. BMC is a subset of the MMRDA inventory by construction.
 
 ## Layer 2 — Demand
 

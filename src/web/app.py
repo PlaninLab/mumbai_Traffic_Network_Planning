@@ -39,6 +39,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCS = REPO_ROOT / "docs"
 PROCESSED = REPO_ROOT / "data" / "processed"
 TEMPLATES = Path(__file__).resolve().parent / "templates"
+COVERAGE_SEED = Path(
+    os.environ.get("COVERAGE_SEED_PATH", REPO_ROOT / "data-seed" / "coverage.json")
+)
 
 app = FastAPI(title="Mumbai Traffic Network Planning", version="1.0")
 templates = Jinja2Templates(directory=str(TEMPLATES))
@@ -99,7 +102,10 @@ def corridor_map(request: Request):
 
 
 # Payload names the map API may serve — a fixed allowlist, never the raw path.
-MAP_PAYLOADS = {"network", "intersections", "frames", "od", "here", "summary"}
+# ``coverage`` is the real OSM major-road/junction inventory for the nested BMC
+# and MMRDA views. It deliberately contains no inferred traffic observations.
+MAP_PAYLOADS = {"network", "intersections", "frames", "od", "here", "summary",
+                "coverage"}
 
 
 @app.get("/api/map/{name}")
@@ -107,6 +113,11 @@ def api_map(name: str):
     if name not in MAP_PAYLOADS:
         return JSONResponse({"error": "unknown payload"}, status_code=404)
     p = PROCESSED / "map" / f"{name}.json"
+    if name == "coverage" and not p.exists() and COVERAGE_SEED.exists():
+        # An existing Docker named volume can hide the copy shipped under
+        # data/processed. Serve the immutable seed until the collector installs
+        # its writable copy into that shared volume on the first sweep.
+        p = COVERAGE_SEED
     if not p.exists():
         return JSONResponse(
             {"error": f"{name}.json not built yet. "
@@ -219,14 +230,30 @@ def health():
     iv = incidents_view()
     hold, latch = iv["hold"], iv["latch"]
     inv_totals = store.inventory()["totals"]
+    regional = store.intersection_inventory()
+    coverage_path = PROCESSED / "map" / "coverage.json"
     return {"status": "ok",
             "has_segments": (PROCESSED / "segment_overview.json").exists(),
             "has_scenarios": (PROCESSED / "scenario_comparison.csv").exists(),
             "has_report": (DOCS / "report.html").exists(),
+            "has_regional_coverage": coverage_path.exists() or COVERAGE_SEED.exists(),
             # Collection state — lets a monitor tell "out of quota" apart from
             # "collector is dead", which look identical from the outside.
             "readings": inv_totals.get("readings", 0),
             "last_reading_ist": inv_totals.get("last_ist"),
+            "regional_readings": regional["readings"],
+            "regional_rows": regional["rows"],
+            "regional_points_collected": regional["points"],
+            "last_regional_reading_utc": regional["last_utc"],
+            "regional_collection_scope": os.environ.get(
+                "REGIONAL_COLLECTION_SCOPE"
+            ),
+            "regional_collection_mode": os.environ.get(
+                "REGIONAL_COLLECTION_MODE"
+            ),
+            "regional_mmrda_next_offset": store.load_collection_cursor(
+                "intersection_readings:mmrda"
+            ),
             "calls_used": b.get("calls_used"),
             "calls_limit": b.get("calls_limit"),
             "budget_exhausted": b.get("exhausted", False),

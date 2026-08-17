@@ -1,8 +1,10 @@
 """
-collect_day.py — full-day flow collection at segment-dependent intervals.
+collect_day.py — scheduled WEH and regional flow collection.
 
 Instead of a few fixed readings, this samples the WEH continuously through the day
-and adapts the cadence to the segment (finer where it matters):
+and can collect either every Greater Mumbai junction or a rotating regional batch
+on the same cadence. Batched mode uses a persistent cursor; production deployment
+uses full-inventory mode so every mapped MMRDA/BMC junction is called each sweep.
 
     peak windows      -> every 10 min (default)   [08:00–11:00 & 17:30–20:30 IST]
     everything else   -> every 15 min (default)
@@ -35,7 +37,13 @@ import argparse
 import time
 from datetime import datetime, time as dtime, timedelta
 
-from src.data import budget, collect_flow, incidents, segment_summary
+from src.data import (
+    budget,
+    collect_flow,
+    collect_intersections,
+    incidents,
+    segment_summary,
+)
 from src.data import segments as seg
 
 TOMTOM_DAILY_BUDGET = 2500
@@ -80,8 +88,15 @@ def simulate_schedule(start: datetime, end: datetime, peak_min: int, off_min: in
     return sched
 
 
-def _print_plan(sched, n, start, end, peak_min, off_min, night_min=None):
-    calls = len(sched) * n
+def _print_plan(sched, n, start, end, peak_min, off_min, night_min=None,
+                intersection_scope=None, intersection_batch=0,
+                intersection_total=None, all_intersections=False,
+                provider="here"):
+    regional_calls = (
+        intersection_total if all_intersections and intersection_total else intersection_batch
+    )
+    calls_per_sweep = n + regional_calls
+    calls = len(sched) * calls_per_sweep
     by_seg = {}
     for _, s, _step in sched:
         by_seg[s] = by_seg.get(s, 0) + 1
@@ -91,29 +106,68 @@ def _print_plan(sched, n, start, end, peak_min, off_min, night_min=None):
         ns, ne = seg.NIGHT_WINDOW
         cadence += f", night({ns:%H:%M}-{ne:%H:%M})={night_min}min"
     print(f"[collect_day] Window: {start:%Y-%m-%d %H:%M} -> {end:%H:%M} IST")
-    print(f"[collect_day] Cadence: {cadence}, points/reading n={n}")
-    print(f"[collect_day] Readings: {len(sched)} "
+    print(f"[collect_day] Cadence: {cadence}")
+    print(f"[collect_day] Sweeps: {len(sched)} "
           f"({', '.join(f'{k}:{v}' for k, v in sorted(by_seg.items()))})")
+    regional = ""
+    if intersection_scope and regional_calls:
+        qualifier = "all " if all_intersections else ""
+        regional = f" + {qualifier}{regional_calls:,} {intersection_scope.upper()} junctions"
+    print(f"[collect_day] Calls/sweep: {n} WEH points{regional} = {calls_per_sweep}")
+    if (intersection_scope and intersection_batch and intersection_total
+            and not all_intersections):
+        batches = (intersection_total + intersection_batch - 1) // intersection_batch
+        print(f"[collect_day] Regional rotation: {intersection_total:,} junctions; "
+              f"one full pass every ~{batches:,} sweeps (persistent cursor)")
     if night_min is not None:
         print(f"[collect_day]   of which night: {night_reads} "
               f"(day: {len(sched) - night_reads})")
-    print(f"[collect_day] Estimated API calls today: {calls}  "
-          f"(TomTom free tier {TOMTOM_DAILY_BUDGET}/day; HERE tiers differ)")
-    if calls > TOMTOM_DAILY_BUDGET:
+    print(f"[collect_day] Estimated {provider.upper()} API calls today: {calls:,}")
+    if provider == "tomtom" and calls > TOMTOM_DAILY_BUDGET:
         over = calls - TOMTOM_DAILY_BUDGET
-        safe_n = max(1, TOMTOM_DAILY_BUDGET // max(1, len(sched)))
-        print(f"  !! OVER BUDGET by {over} calls. Lower --n to <= {safe_n}, widen "
-              f"intervals, or shorten the window.")
+        safe_total = max(1, TOMTOM_DAILY_BUDGET // max(1, len(sched)))
+        print(f"  !! Over TomTom's {TOMTOM_DAILY_BUDGET:,}/day free tier by "
+              f"{over:,} calls. Lower the combined points/sweep "
+              f"to <= {safe_total}, widen intervals, or shorten the window.")
     return calls
 
 
 def run_day(n=25, until=None, minutes=None, peak_min=10, off_min=15,
             night_min=None, provider="here", max_calls_month=None,
-            request_pause=0.0, latch_after=None, dry_run=False) -> None:
+            request_pause=0.0, latch_after=None, dry_run=False,
+            intersection_scope=None, intersection_batch=0,
+            all_intersections=False) -> None:
+    if n <= 0:
+        raise ValueError("n must be greater than zero")
+    if intersection_scope not in (None, "bmc", "mmrda"):
+        raise ValueError("intersection_scope must be 'bmc', 'mmrda', or None")
+    if intersection_batch < 0:
+        raise ValueError("intersection_batch must be zero or greater")
+    if all_intersections and intersection_batch:
+        raise ValueError(
+            "--all-intersections and --intersection-batch are mutually exclusive"
+        )
+    if bool(intersection_scope) != bool(intersection_batch or all_intersections):
+        raise ValueError(
+            "--intersection-scope requires --all-intersections or a positive "
+            "--intersection-batch"
+        )
+
     now = seg.ist_now()
     end = _end_time(now, until, minutes)
     sched = simulate_schedule(now, end, peak_min, off_min, night_min)
-    _print_plan(sched, n, now, end, peak_min, off_min, night_min)
+    intersection_total = None
+    if intersection_scope:
+        # Validates (and, on an upgraded Docker volume, seeds) the real inventory
+        # before the day-long loop begins. This never calls a traffic provider.
+        _coverage, _preview, intersection_total = collect_intersections.inventory_batch(
+            intersection_scope, limit=1
+        )
+    planned_calls = _print_plan(
+        sched, n, now, end, peak_min, off_min, night_min,
+        intersection_scope, intersection_batch, intersection_total,
+        all_intersections, provider,
+    )
     print(f"[collect_day] Flow provider: {provider}")
 
     limit = budget.resolve_limit(provider, max_calls_month)
@@ -121,8 +175,8 @@ def run_day(n=25, until=None, minutes=None, peak_min=10, off_min=15,
     if limit:
         print(f"[collect_day] Monthly cap: {s['calls_used']:,}/{limit:,} calls used "
               f"({s['month_utc']} UTC, {s['calls_remaining']:,} left)")
-        if len(sched) * n > s["calls_remaining"]:
-            print(f"  !! This day's plan needs {len(sched) * n:,} calls but only "
+        if planned_calls > s["calls_remaining"]:
+            print(f"  !! This day's plan needs {planned_calls:,} calls but only "
                   f"{s['calls_remaining']:,} remain. Collection will stop part-way.")
     else:
         print(f"[collect_day] Monthly cap: none set — {s['calls_used']:,} calls used so far "
@@ -137,7 +191,8 @@ def run_day(n=25, until=None, minutes=None, peak_min=10, off_min=15,
         return
 
     print("\n[collect_day] Starting full-day collection. Ctrl-C to stop.\n")
-    count, starved, held, stopped = 0, False, False, False
+    corridor_count, regional_count = 0, 0
+    starved, held, stopped = False, False, False
     while seg.ist_now() <= end:
         s = seg.current_segment()
         # Provider back-off is a GATE, not an extra sleep. Skipping the sweep here
@@ -179,7 +234,33 @@ def run_day(n=25, until=None, minutes=None, peak_min=10, off_min=15,
                                  request_pause=request_pause,
                                  latch_after=latch_after)
             segment_summary.build_summary()   # refresh dashboard data
-            count += 1
+            corridor_count += 1
+            if intersection_scope:
+                common = {
+                    "label": f"scheduled_{s}",
+                    "segment": s,
+                    "provider": provider,
+                    "max_calls_month": max_calls_month,
+                    "request_pause": request_pause,
+                    "latch_after": latch_after,
+                }
+                if all_intersections:
+                    regional = collect_intersections.collect(
+                        intersection_scope, limit=None, offset=0, **common
+                    )
+                else:
+                    regional = collect_intersections.collect_next_batch(
+                        intersection_scope, limit=intersection_batch, **common
+                    )
+                regional_count += 1
+                tail = "full inventory requested."
+                if not all_intersections:
+                    tail = (
+                        f"next {intersection_scope.upper()} offset "
+                        f"{regional['next_offset']:,}/{regional['total_in_scope']:,}."
+                    )
+                print(f"[collect_day] Regional batch {regional_count}: "
+                      f"{regional['inserted']}/{regional['requested']} stored; {tail}")
             starved = False
         except budget.BudgetExhausted as e:
             # Keep the process alive but make NO calls: exiting here would restart-loop
@@ -201,14 +282,18 @@ def run_day(n=25, until=None, minutes=None, peak_min=10, off_min=15,
         nxt = seg.ist_now() + timedelta(minutes=interval)
         if nxt > end:
             break
-        print(f"[collect_day] reading {count} done; sleeping {interval} min "
+        print(f"[collect_day] sweeps done: WEH={corridor_count}, "
+              f"regional={regional_count}; sleeping {interval} min "
               f"(next ~{nxt:%H:%M} IST)\n")
         time.sleep(interval * 60)
-    print(f"[collect_day] Done — {count} readings collected through {end:%H:%M} IST.")
+    print(f"[collect_day] Done — WEH sweeps={corridor_count}, "
+          f"regional batches={regional_count} through {end:%H:%M} IST.")
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Full-day WEH flow collection at 10/15-min intervals.")
+    ap = argparse.ArgumentParser(
+        description="Scheduled WEH plus Greater Mumbai junction flow collection."
+    )
     ap.add_argument("--n", type=int, default=25, help="Sample points per reading (default 25).")
     ap.add_argument("--until", default=None, help="Stop at this IST time HH:MM (default 23:59).")
     ap.add_argument("--minutes", type=int, default=None,
@@ -222,6 +307,20 @@ def main() -> None:
                          "Coarser nights free up API calls for a higher --n by day.")
     ap.add_argument("--provider", choices=["here", "tomtom"], default="here",
                     help="Flow data source (default here; needs HERE_API_KEY).")
+    ap.add_argument(
+        "--intersection-scope", choices=["bmc", "mmrda"], default=None,
+        help="Collect this regional inventory. MMRDA includes all BMC junctions.",
+    )
+    intersection_mode = ap.add_mutually_exclusive_group()
+    intersection_mode.add_argument(
+        "--intersection-batch", type=int, default=0,
+        help="Regional junction calls per sweep (requires --intersection-scope). "
+             "The restart-safe cursor advances to the next batch each interval.",
+    )
+    intersection_mode.add_argument(
+        "--all-intersections", action="store_true",
+        help="Call every junction in --intersection-scope during every sweep.",
+    )
     ap.add_argument("--max-calls-month", type=int, default=None,
                     help="Cap total provider calls per billing month. Overrides "
                          "<PROVIDER>_MONTHLY_CALL_LIMIT / API_MONTHLY_CALL_LIMIT. "
@@ -239,7 +338,9 @@ def main() -> None:
             night_min=args.night_interval, provider=args.provider,
             max_calls_month=args.max_calls_month,
             request_pause=args.request_pause, latch_after=args.max_failed_calls,
-            dry_run=args.dry_run)
+            dry_run=args.dry_run, intersection_scope=args.intersection_scope,
+            intersection_batch=args.intersection_batch,
+            all_intersections=args.all_intersections)
 
 
 if __name__ == "__main__":

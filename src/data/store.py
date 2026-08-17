@@ -17,6 +17,12 @@ Table `flow_readings` — one row per (reading, WEH sample point):
     lat, lon          sample-point coordinates
     current_speed_kph, free_speed_kph, tti, confidence, road_closure
 
+Table `intersection_readings` is deliberately separate. It stores fresh provider
+observations for the expanded Greater Mumbai junction inventory, keyed by the
+inventory's stable string ``point_id`` rather than the WEH ``idx``. Keeping the
+tables separate prevents an expanded-area point from being mistaken for a WEH
+corridor sample by existing calibration and grouping code.
+
 Inserts are idempotent: UNIQUE(run_id, idx) + INSERT OR IGNORE, so re-running a
 backfill or re-importing a CSV never duplicates rows.
 
@@ -64,6 +70,47 @@ CREATE TABLE IF NOT EXISTS flow_readings (
 CREATE INDEX IF NOT EXISTS ix_flow_segment ON flow_readings(segment);
 CREATE INDEX IF NOT EXISTS ix_flow_fetched ON flow_readings(fetched_utc);
 CREATE INDEX IF NOT EXISTS ix_flow_run     ON flow_readings(run_id);
+
+-- Fresh readings for the expanded Greater Mumbai junction inventory. ``scope``
+-- is the point's most specific membership: bmc for BMC junctions and mmrda for
+-- the MMRDA-only remainder. The MMRDA view is the union of both scopes.
+CREATE TABLE IF NOT EXISTS intersection_readings (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id            TEXT NOT NULL,
+    point_id           TEXT NOT NULL,
+    scope              TEXT NOT NULL,
+    fetched_utc        TEXT NOT NULL,
+    fetched_ist        TEXT,
+    segment            TEXT,
+    label              TEXT,
+    lat                REAL NOT NULL,
+    lon                REAL NOT NULL,
+    name               TEXT,
+    provider           TEXT NOT NULL,
+    current_speed_kph  REAL,
+    free_speed_kph     REAL,
+    tti                REAL,
+    confidence         REAL,
+    road_closure       INTEGER,
+    UNIQUE(run_id, point_id)
+);
+CREATE INDEX IF NOT EXISTS ix_intersection_point
+    ON intersection_readings(point_id);
+CREATE INDEX IF NOT EXISTS ix_intersection_scope
+    ON intersection_readings(scope);
+CREATE INDEX IF NOT EXISTS ix_intersection_fetched
+    ON intersection_readings(fetched_utc);
+CREATE INDEX IF NOT EXISTS ix_intersection_run
+    ON intersection_readings(run_id);
+
+-- Persistent round-robin positions for scheduled collection streams. A cursor
+-- lives beside the readings so Docker restarts cannot reset regional coverage
+-- to junction zero and repeatedly spend calls on the same first batch.
+CREATE TABLE IF NOT EXISTS collection_cursor (
+    stream       TEXT PRIMARY KEY,
+    next_offset  INTEGER NOT NULL DEFAULT 0,
+    updated_utc  TEXT NOT NULL
+);
 
 -- Metered API calls reserved per provider per billing month (see src/data/budget.py).
 -- Lives here so it shares the readings DB, and therefore the persistent volume:
@@ -129,6 +176,12 @@ _MIGRATIONS = {
 _COLUMNS = ["run_id", "fetched_utc", "fetched_ist", "segment", "label", "idx",
             "lat", "lon", "current_speed_kph", "free_speed_kph", "tti",
             "confidence", "road_closure", "provider"]
+
+_INTERSECTION_COLUMNS = [
+    "run_id", "point_id", "scope", "fetched_utc", "fetched_ist", "segment",
+    "label", "lat", "lon", "name", "provider", "current_speed_kph",
+    "free_speed_kph", "tti", "confidence", "road_closure",
+]
 
 
 def connect() -> sqlite3.Connection:
@@ -200,6 +253,167 @@ def insert_readings(rows: list[dict], run_id: str, conn: sqlite3.Connection | No
     if own:
         conn.close()
     return inserted
+
+
+def _normalize_intersection(row: dict, run_id: str) -> tuple:
+    """Map an expanded-inventory reading to the intersection table columns."""
+    fetched_utc = row.get("fetched_utc") or ""
+    segment = row.get("segment") or seg.classify_utc_iso(fetched_utc)
+    try:
+        fetched_ist = seg.to_ist(datetime.fromisoformat(fetched_utc)).isoformat()
+    except (ValueError, TypeError):
+        fetched_ist = None
+    rc = row.get("roadClosure", row.get("road_closure"))
+    rc = int(bool(rc)) if rc is not None and rc != "" else None
+    return (
+        run_id, str(row.get("point_id", row.get("id", ""))), row.get("scope"),
+        fetched_utc, fetched_ist, segment, row.get("label"), _float(row.get("lat")),
+        _float(row.get("lon")), row.get("name"), row.get("provider") or "tomtom",
+        _float(row.get("currentSpeed_kph", row.get("current_speed_kph"))),
+        _float(row.get("freeFlowSpeed_kph", row.get("free_speed_kph"))),
+        _float(row.get("tti")), _float(row.get("confidence")), rc,
+    )
+
+
+def insert_intersection_readings(
+    rows: list[dict], run_id: str, conn: sqlite3.Connection | None = None,
+) -> int:
+    """Insert fresh expanded-area readings without touching ``flow_readings``.
+
+    Inserts are idempotent on ``(run_id, point_id)``. Returns the number of rows
+    actually inserted.
+    """
+    own = conn is None
+    conn = conn or connect()
+    tuples = [_normalize_intersection(r, run_id) for r in rows]
+    placeholders = ",".join(["?"] * len(_INTERSECTION_COLUMNS))
+    before = conn.total_changes
+    conn.executemany(
+        f"INSERT OR IGNORE INTO intersection_readings "
+        f"({','.join(_INTERSECTION_COLUMNS)}) VALUES ({placeholders})",
+        tuples,
+    )
+    conn.commit()
+    inserted = conn.total_changes - before
+    if own:
+        conn.close()
+    return inserted
+
+
+def load_intersection_readings_df(scope: str | None = None) -> pd.DataFrame:
+    """Return expanded-area readings, optionally filtered to a map scope.
+
+    ``scope='bmc'`` returns BMC points only. ``scope='mmrda'`` returns every
+    point because MMRDA contains BMC. With no scope, all readings are returned.
+    """
+    if scope not in (None, "bmc", "mmrda"):
+        raise ValueError("scope must be 'bmc', 'mmrda', or None")
+    if not DB_PATH.exists():
+        return pd.DataFrame()
+    conn = connect()
+    try:
+        query = "SELECT * FROM intersection_readings"
+        params: tuple = ()
+        if scope == "bmc":
+            query += " WHERE scope = ?"
+            params = ("bmc",)
+        return pd.read_sql_query(query, conn, params=params)
+    finally:
+        conn.close()
+
+
+def load_latest_intersection_readings(scope: str | None = None) -> pd.DataFrame:
+    """Return the newest successful reading for each expanded-area point.
+
+    This is the map export integration point. It reads the authoritative SQLite
+    observations directly, so generated coverage JSON never needs synthetic
+    placeholder speeds. MMRDA intentionally includes both BMC and MMRDA-only
+    point memberships; BMC is the strict subset.
+    """
+    if scope not in (None, "bmc", "mmrda"):
+        raise ValueError("scope must be 'bmc', 'mmrda', or None")
+    if not DB_PATH.exists():
+        return pd.DataFrame()
+    conn = connect()
+    try:
+        where = "WHERE scope = ?" if scope == "bmc" else ""
+        params: tuple = ("bmc",) if scope == "bmc" else ()
+        return pd.read_sql_query(
+            f"""
+            SELECT *
+            FROM (
+                SELECT ir.*,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY point_id
+                           ORDER BY fetched_utc DESC, id DESC
+                       ) AS _latest_rank
+                FROM intersection_readings AS ir
+                {where}
+            )
+            WHERE _latest_rank = 1
+            ORDER BY point_id
+            """,
+            conn,
+            params=params,
+        ).drop(columns=["_latest_rank"], errors="ignore")
+    finally:
+        conn.close()
+
+
+def load_collection_cursor(stream: str) -> int:
+    """Return the next offset for a scheduled stream, defaulting to zero."""
+    if not stream.strip():
+        raise ValueError("stream must not be empty")
+    conn = connect()
+    try:
+        row = conn.execute(
+            "SELECT next_offset FROM collection_cursor WHERE stream = ?", (stream,)
+        ).fetchone()
+        return max(0, int(row[0])) if row else 0
+    finally:
+        conn.close()
+
+
+def save_collection_cursor(stream: str, next_offset: int) -> None:
+    """Persist a non-negative round-robin offset atomically."""
+    if not stream.strip():
+        raise ValueError("stream must not be empty")
+    if next_offset < 0:
+        raise ValueError("next_offset must be zero or greater")
+    conn = connect()
+    try:
+        conn.execute(
+            """
+            INSERT INTO collection_cursor (stream, next_offset, updated_utc)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT(stream) DO UPDATE SET
+                next_offset = excluded.next_offset,
+                updated_utc = excluded.updated_utc
+            """,
+            (stream, int(next_offset)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def intersection_inventory() -> dict:
+    """Small health summary for the scheduled regional collection stream."""
+    if not DB_PATH.exists():
+        return {"rows": 0, "readings": 0, "points": 0, "last_utc": None}
+    conn = connect()
+    try:
+        row = conn.execute(
+            """
+            SELECT COUNT(*), COUNT(DISTINCT run_id), COUNT(DISTINCT point_id),
+                   MAX(fetched_utc)
+            FROM intersection_readings
+            """
+        ).fetchone()
+    finally:
+        conn.close()
+    return {"rows": int(row[0]), "readings": int(row[1]),
+            "points": int(row[2]), "last_utc": row[3]}
 
 
 def load_readings_df() -> pd.DataFrame:
