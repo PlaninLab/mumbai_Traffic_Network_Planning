@@ -25,8 +25,9 @@ services:
     environment:
       TZ: Asia/Kolkata
       # Read-only view of the same counter the collector writes, so /data and
-      # /api/health can report usage against the cap.
-      HERE_MONTHLY_CALL_LIMIT: ${HERE_MONTHLY_CALL_LIMIT:-38000}
+      # /api/health can report usage against the cap. No API key here: app.py
+      # never calls a paid provider, so the public container can spend nothing.
+      HERE_MONTHLY_CALL_LIMIT: "38000"
     volumes:
       - traffic-data:/app/data/processed
       - traffic-csv:/app/data/raw/tomtom/collected
@@ -48,10 +49,16 @@ services:
     restart: unless-stopped
     environment:
       TZ: Asia/Kolkata
-      HERE_API_KEY: ${HERE_API_KEY}
+      # HERE_API_KEY is deliberately NOT declared here. Declaring it as
+      # ${HERE_API_KEY} would interpolate to an EMPTY STRING when the variable is
+      # unset at deploy time, and that empty value would then shadow the key set
+      # on the service in the platform UI — the collector would run key-less and
+      # fail every sweep. Leaving it undeclared lets the platform inject it.
+      # Set it on the `collector` service: Apps & Services -> collector -> Environment.
+      #
       # Hard stop on metered calls. The count lives in traffic.db on the volume,
       # so it survives the restarts this policy causes. See src/data/budget.py.
-      HERE_MONTHLY_CALL_LIMIT: ${HERE_MONTHLY_CALL_LIMIT:-38000}
+      HERE_MONTHLY_CALL_LIMIT: "38000"
     volumes:
       - traffic-data:/app/data/processed
       - traffic-csv:/app/data/raw/tomtom/collected
