@@ -21,6 +21,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import geopandas as gpd
+import networkx as nx
 import numpy as np
 import osmnx as ox
 from shapely.geometry import box
@@ -57,16 +58,21 @@ ZONE_BANDS = [
 ]
 
 
-def _arterial_nodes(G):
-    """Node IDs and coordinates for nodes touching an arterial-class edge."""
+def _arterial_nodes(G, eligible_nodes=None):
+    """Node IDs and coordinates for eligible nodes touching an arterial edge."""
+    eligible = set(G.nodes) if eligible_nodes is None else set(eligible_nodes)
     art = set()
     for u, v, d in G.edges(data=True):
         hwy = d.get("highway")
         hwy = hwy[0] if isinstance(hwy, list) else hwy
         base = hwy.replace("_link", "") if isinstance(hwy, str) else ""
         if base in ARTERIAL_CLASSES:
-            art.add(u)
-            art.add(v)
+            if u in eligible:
+                art.add(u)
+            if v in eligible:
+                art.add(v)
+    if not art:
+        raise ValueError("No eligible arterial nodes found for TAZ connectors")
     ids = list(art)
     xs = np.array([G.nodes[n]["x"] for n in ids])
     ys = np.array([G.nodes[n]["y"] for n in ids])
@@ -79,10 +85,16 @@ def _nearest_arterial(centroid, ids, xs, ys):
     return ids[int(np.argmin(d2))]
 
 
-def build_zones() -> gpd.GeoDataFrame:
+def build_zones(G=None) -> gpd.GeoDataFrame:
     """Construct the TAZ GeoDataFrame with polygons, centroids, and connector nodes."""
-    G = load_enriched_graph()
-    art_ids, art_xs, art_ys = _arterial_nodes(G)
+    if G is None:
+        G = load_enriched_graph()
+
+    # Every OD connector must be mutually reachable on the directed network.
+    # Restricting candidates to the largest SCC prevents a one-way ramp or sink
+    # node from silently dropping demand during assignment.
+    main_scc = max(nx.strongly_connected_components(G), key=len)
+    art_ids, art_xs, art_ys = _arterial_nodes(G, eligible_nodes=main_scc)
 
     records = []
     north = CORRIDOR_NORTH

@@ -15,7 +15,8 @@ count of over-capacity links. Results -> data/processed/scenario_comparison.csv,
 and a congestion (V/C) map per case -> docs/scenarios/.
 
 Usage:
-    python -m src.scenarios.evaluate --beta 2.0 --total 18000
+    python -m src.scenarios.evaluate --total 18000
+    python -m src.scenarios.evaluate --beta 2.0  # explicit sensitivity override
 """
 
 from __future__ import annotations
@@ -27,7 +28,8 @@ import pandas as pd
 
 from src.assignment.frank_wolfe import assign
 from src.assignment import metrics
-from src.demand.gravity_model import build_od, od_to_pairs, TARGET_TOTAL_PCU
+from src.demand.generation import DEFAULT_CTS_CONTROL_YEAR
+from src.demand.gravity_model import DEFAULT_BETA, build_od, od_to_pairs, TARGET_TOTAL_PCU
 from src.network import incident as inc
 from src.network.graph_io import load_enriched_graph
 from src.scenarios import define_scenario as scn
@@ -129,10 +131,11 @@ def _summarize(label, description, G, result, df, base_tstt, corridor_od=None,
     return row, corr
 
 
-def run_all_cases(beta: float = 2.0, total_pcu: float = TARGET_TOTAL_PCU,
+def run_all_cases(beta: float | None = DEFAULT_BETA, total_pcu: float = TARGET_TOTAL_PCU,
                   alpha: float = 0.15, bpr_beta: float = 4.0,
                   production_scale=1.0, attraction_scale=1.0, processing_rate=None,
                   cost_source: str = "network", departure_time: str | None = None,
+                  control_year: int = DEFAULT_CTS_CONTROL_YEAR,
                   incident_sweep=(1, 2, 3), verbose: bool = True):
     """Simulate every case on fixed demand. Returns (summary_df, cases dict).
 
@@ -146,7 +149,8 @@ def run_all_cases(beta: float = 2.0, total_pcu: float = TARGET_TOTAL_PCU,
         beta=beta, G=G0, target_total_pcu=total_pcu,
         production_scale=production_scale, attraction_scale=attraction_scale,
         processing_rate=processing_rate,
-        cost_source=cost_source, departure_time=departure_time)
+        cost_source=cost_source, departure_time=departure_time,
+        control_year=control_year)
     pairs = od_to_pairs(zones, veh_T)  # fixed demand across all scenarios
 
     def _run(H):
@@ -214,8 +218,12 @@ def run_all_cases(beta: float = 2.0, total_pcu: float = TARGET_TOTAL_PCU,
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Simulate all scenario cases and compare.")
-    parser.add_argument("--beta", type=float, default=2.0)
+    parser.add_argument("--beta", type=float, default=DEFAULT_BETA,
+                        help="Gravity exponent; omit to calibrate to CTS trip length.")
     parser.add_argument("--total", type=float, default=TARGET_TOTAL_PCU)
+    parser.add_argument("--control-year", type=int,
+                        choices=[2017, 2021, 2026, 2031, 2041],
+                        default=DEFAULT_CTS_CONTROL_YEAR)
     parser.add_argument("--cost-source", choices=["network", "google", "tomtom"],
                         default="network",
                         help="Gravity OD cost matrix source (default network free-flow; "
@@ -224,7 +232,8 @@ def main() -> None:
     args = parser.parse_args()
 
     summary_df, cases, target = run_all_cases(beta=args.beta, total_pcu=args.total,
-                                              cost_source=args.cost_source)
+                                              cost_source=args.cost_source,
+                                              control_year=args.control_year)
 
     pd.set_option("display.width", 200, "display.max_columns", 20)
     print("\n===== ALL-CASES COMPARISON =====")

@@ -11,7 +11,7 @@ Configurations swept:
   - calibrated   : BPR fitted to the TomTom evening snapshot (alpha=0.183, beta=1.0)
   - low_flow     : lower ingoing/outgoing rate (demand 12k PCU/h)
   - high_flow    : higher ingoing/outgoing rate (demand 24k PCU/h)
-  - capped_proc  : regional processing-rate ceiling (zones capped at 60 person-trips/hr)
+  - capped_proc  : regional processing-rate ceiling (zones capped at 60k person-trips/hr)
 
 For each config the full case set (base + A/B/C + incident N=1..3) is simulated;
 we tabulate ΔTSTT% per scenario per config and plot them side by side.
@@ -44,7 +44,7 @@ CONFIGS = [
     {"name": "calibrated",  "alpha": CALIBRATED_ALPHA, "bpr_beta": CALIBRATED_BETA, "total_pcu": 18000},
     {"name": "low_flow",    "alpha": 0.15,  "bpr_beta": 4.0, "total_pcu": 12000},
     {"name": "high_flow",   "alpha": 0.15,  "bpr_beta": 4.0, "total_pcu": 24000},
-    {"name": "capped_proc", "alpha": 0.15,  "bpr_beta": 4.0, "total_pcu": 18000, "processing_rate": 60},
+    {"name": "capped_proc", "alpha": 0.15,  "bpr_beta": 4.0, "total_pcu": 18000, "processing_rate": 60000},
 ]
 
 

@@ -110,13 +110,13 @@ def calibrate(flow_csv=None, total_pcu: float = 18000.0, passes: int = 2):
     history = []
 
     for p in range(passes):
-        G, zones, res, df = run_base(beta=2.0, total_pcu=total_pcu,
+        G, zones, res, df = run_base(total_pcu=total_pcu,
                                      max_iter=250, tol=0.001, verbose=False)
         # Re-run assignment with the current BPR params (pass 0 uses defaults).
         if p > 0:
             from src.assignment.frank_wolfe import assign
             from src.demand.gravity_model import build_od, od_to_pairs
-            _z, _pt, vehT, _c = build_od(beta=2.0, G=G, target_total_pcu=total_pcu)
+            _z, _pt, vehT, _c = build_od(G=G, target_total_pcu=total_pcu)
             pairs = od_to_pairs(zones, vehT)
             res = assign(G, pairs, alpha=alpha, beta=beta, max_iter=250, tol=0.001, verbose=False)
             df = metrics.link_table(G, res)

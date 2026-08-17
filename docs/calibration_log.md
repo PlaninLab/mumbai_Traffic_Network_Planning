@@ -9,7 +9,7 @@ against, and the resulting fit. Empty until Phase 2–3 (demand + assignment cal
 |-----------|--------|---------|--------------------|--------|
 | BPR congestion coefficient | α | 0.15 | Google congested/free-flow travel-time ratio | ⬜ pending |
 | BPR exponent | β | 4 | Same | ⬜ pending |
-| Gravity deterrence exponent | β_grav | 2 | Plausible corridor trip volumes (100K–200K veh/day WEH) | ⬜ pending |
+| Gravity deterrence exponent | β_grav | Auto-calibrated (currently 3.849) | CTS 2017 car/TW share-weighted mean interzonal trip length, 14.40 km | ✅ implemented |
 | Per-lane capacity | C_lane | IRC road-class values (1200–2000 PCU/h) | MCGM/CTS traffic counts | ⬜ pending |
 | Encroachment factor | — | 0.85 | MCGM counts vs. modelled capacity | ⬜ pending |
 | Mode split (private vehicle share) | — | ~30% | CTS data | ⬜ pending |
@@ -22,7 +22,9 @@ against, and the resulting fit. Empty until Phase 2–3 (demand + assignment cal
 
 | Parameter | Value | Where | Note |
 |-----------|-------|-------|------|
-| Gravity β | 2.0 | `gravity_model.DEFAULT_BETA` | synthetic; sensitivity pending |
+| Gravity β | 3.849 on the current network | `gravity_model.calibrate_gravity_beta` | fitted at runtime to the 14.40 km CTS private-vehicle target; numeric CLI override remains available |
+| Western Suburbs population control | 6.01 million (2026) | `generation.CTS_WESTERN_SUBURBS_CONTROLS` | MMRDA CTSU Table 5-2; within-corridor locality shares remain synthetic |
+| Western Suburbs employment control | 2.89 million (2026) | `generation.CTS_WESTERN_SUBURBS_CONTROLS` | MMRDA CTSU Table 5-4; within-corridor locality shares remain synthetic |
 | Peak trip rate | 0.12 trips/person/hr | `generation.PEAK_TRIP_RATE` | synthetic |
 | Private-vehicle mode share | 0.30 | `gravity_model.PRIVATE_VEHICLE_SHARE` | ~Mumbai (plan §Phase 2) |
 | Avg occupancy | 1.4 persons/veh | `gravity_model.AVG_OCCUPANCY` | synthetic |
@@ -31,6 +33,14 @@ against, and the resulting fit. Empty until Phase 2–3 (demand + assignment cal
 | FW convergence tol | 0.001 (scenarios) | `evaluate._run` | keeps ΔTSTT below smallest reported effect |
 
 ## Log
+
+- **2026-08-17 — CTS demand controls and gravity calibration.** Scaled the 11 synthetic
+  locality allocations to the MMRDA CTSU 2026 Western Suburbs controls (6.01 million
+  population and 2.89 million employment). Replaced the fixed gravity exponent with a
+  bounded runtime calibration to the CTS 2017 morning-peak car/two-wheeler share-weighted
+  mean trip length: `(6.9% × 16.5 km + 11.1% × 13.1 km) / 18.0% = 14.40 km`.
+  The current network fits this at β=3.849. TAZ connectors are now selected from the
+  largest strongly connected road component so every modeled OD pair is assignable.
 
 - **2026-08-14 — Phase 2–3 baseline established.** Gravity OD (β=2) scaled to 18k PCU/h;
   Frank-Wolfe UE converges to gap <0.001 in ~10 iters. Base case reproduces the WEH as the
