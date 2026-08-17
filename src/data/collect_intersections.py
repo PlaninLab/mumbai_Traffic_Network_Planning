@@ -33,8 +33,11 @@ from src.data import tomtom_client as tt
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COVERAGE_PATH = REPO_ROOT / "data" / "processed" / "map" / "coverage.json"
+MAP_SEED_DIR = Path(
+    os.environ.get("MAP_SEED_DIR", REPO_ROOT / "data-seed" / "map")
+)
 COVERAGE_SEED_PATH = Path(
-    os.environ.get("COVERAGE_SEED_PATH", REPO_ROOT / "data-seed" / "coverage.json")
+    os.environ.get("COVERAGE_SEED_PATH", MAP_SEED_DIR / "coverage.json")
 )
 VALID_SCOPES = ("bmc", "mmrda")
 

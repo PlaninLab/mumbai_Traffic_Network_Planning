@@ -25,19 +25,19 @@ WORKDIR /app
 COPY requirements-server.txt .
 RUN pip install --no-cache-dir --only-binary=:all: -r requirements-server.txt
 
-# Keep the real junction inventory outside the processed-data mount as well as
+# Keep every prebuilt map payload outside the processed-data mount as well as
 # inside the application tree. Existing named volumes hide newly shipped files
-# under /app/data/processed; the collector copies this immutable seed into such
-# a volume on its first regional sweep, while the web service can serve it
-# immediately during that short bootstrap window.
-COPY data/processed/map/coverage.json /app/data-seed/coverage.json
+# under /app/data/processed, so the web service falls back to this immutable
+# seed until a payload has been generated in the shared writable volume.
+COPY data/processed/map/ /app/data-seed/map/
 
 # App code + precomputed outputs (docs/, data/processed/).
 COPY . .
 
 EXPOSE 8000
 ENV PORT=8000
-ENV COVERAGE_SEED_PATH=/app/data-seed/coverage.json
+ENV MAP_SEED_DIR=/app/data-seed/map
+ENV COVERAGE_SEED_PATH=/app/data-seed/map/coverage.json
 
 # Honour the platform-provided $PORT (Render/Railway/Fly set it); default 8000.
 CMD ["sh", "-c", "uvicorn src.web.app:app --host 0.0.0.0 --port ${PORT}"]

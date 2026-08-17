@@ -444,7 +444,10 @@ docker compose up --build -d
 
 The `web` and `collector` services share the persistent SQLite/data volume. Set
 `HERE_API_KEY` on the collector service; the compose command waits for the fixed campaign
-start and safely resumes its remaining unclaimed slots after a server reboot.
+start and safely resumes its remaining unclaimed slots after a server reboot. The image
+also carries an immutable copy of every prebuilt map payload outside that volume, so an
+existing or empty volume cannot hide the files required by `/map`; generated payloads in
+the shared volume automatically take precedence when present.
 
 **Deploy to a PaaS** (Render / Railway / Fly.io): the repo includes a `Procfile` and
 `Dockerfile`. Point the platform at the repo; it honours `$PORT` automatically. Deploy

@@ -39,8 +39,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCS = REPO_ROOT / "docs"
 PROCESSED = REPO_ROOT / "data" / "processed"
 TEMPLATES = Path(__file__).resolve().parent / "templates"
+MAP_SEED_DIR = Path(
+    os.environ.get("MAP_SEED_DIR", REPO_ROOT / "data-seed" / "map")
+)
 COVERAGE_SEED = Path(
-    os.environ.get("COVERAGE_SEED_PATH", REPO_ROOT / "data-seed" / "coverage.json")
+    os.environ.get("COVERAGE_SEED_PATH", MAP_SEED_DIR / "coverage.json")
 )
 
 app = FastAPI(title="Mumbai Traffic Network Planning", version="1.0")
@@ -118,11 +121,14 @@ def api_map(name: str):
     if name not in MAP_PAYLOADS:
         return JSONResponse({"error": "unknown payload"}, status_code=404)
     p = PROCESSED / "map" / f"{name}.json"
-    if name == "coverage" and not p.exists() and COVERAGE_SEED.exists():
-        # An existing Docker named volume can hide the copy shipped under
-        # data/processed. Serve the immutable seed until the collector installs
-        # its writable copy into that shared volume on the first sweep.
-        p = COVERAGE_SEED
+    if not p.exists():
+        # An existing Docker volume can hide every payload shipped under
+        # data/processed. Prefer a generated payload in that writable volume,
+        # but serve the immutable image seed while it is absent. Coverage keeps
+        # its separate override for backwards-compatible deployments.
+        seed = COVERAGE_SEED if name == "coverage" else MAP_SEED_DIR / f"{name}.json"
+        if seed.exists():
+            p = seed
     if not p.exists():
         return JSONResponse(
             {"error": f"{name}.json not built yet. "
