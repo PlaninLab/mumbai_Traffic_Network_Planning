@@ -31,16 +31,15 @@ services:
     volumes:
       - traffic-data:/app/data/processed
       - traffic-csv:/app/data/raw/tomtom/collected
-    healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
+    # No container healthcheck. The one that was here never executed on the host
+    # platform: across two container starts and two hours, uvicorn's access log
+    # recorded not one request from 127.0.0.1, so the probe was failing before it
+    # reached the app. Docker does not restart an unhealthy container by itself,
+    # so its ONLY effect was to mark a service "failed" that was serving 200 over
+    # HTTPS the whole time — a permanent false alarm, which is worse than no
+    # check, because it hides the real one. /api/health is still there for an
+    # external uptime monitor, and it reports collection state as well as
+    # liveness (readings, budget_exhausted, provider_hold, collection_stopped).
 
   collector:
     build:
