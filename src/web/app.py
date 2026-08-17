@@ -22,7 +22,10 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 from urllib.parse import parse_qs
 
 import pandas as pd
@@ -31,6 +34,7 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
                                RedirectResponse)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.background import BackgroundTask
 from starlette.requests import Request
 
 from src.data import budget, incidents, store
@@ -233,6 +237,73 @@ def data_inventory(request: Request):
 def api_data():
     return JSONResponse({"inventory": store.inventory(), "budget": budget_view(),
                          "incidents": incidents_view()})
+
+
+def _data_export_auth_error(request: Request) -> JSONResponse | None:
+    """Return an auth error for the CSV export, or ``None`` when authorized."""
+    expected = os.environ.get("DATA_EXPORT_TOKEN", "").strip()
+    if not expected:
+        return JSONResponse(
+            {"error": "Data export is disabled. Set DATA_EXPORT_TOKEN on the "
+                      "web service to enable it."},
+            status_code=503,
+        )
+
+    token = request.headers.get("X-Export-Token", "").strip()
+    if not token:
+        scheme, _, credentials = request.headers.get(
+            "Authorization", ""
+        ).partition(" ")
+        if scheme.lower() == "bearer":
+            token = credentials.strip()
+    if not token or not secrets.compare_digest(token, expected):
+        return JSONResponse(
+            {"error": "A valid export token is required."},
+            status_code=401,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return None
+
+
+@app.get("/api/export/readings.csv")
+def api_export_readings(
+    request: Request,
+    dataset: Literal["all", "corridor", "intersections"] = "all",
+):
+    """Download every collected traffic observation as a normalized CSV.
+
+    The file is generated into a short-lived temporary file and then streamed
+    by Starlette. This avoids loading the production dataset into RAM and avoids
+    holding a SQLite cursor open while a slow client downloads the response.
+    """
+    if auth_error := _data_export_auth_error(request):
+        return auth_error
+
+    handle, temporary_name = tempfile.mkstemp(
+        prefix="mumbai-traffic-readings-", suffix=".csv"
+    )
+    os.close(handle)
+    temporary_path = Path(temporary_name)
+    try:
+        row_count = store.export_collected_readings_csv(temporary_path, dataset)
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
+
+    date = datetime.now(timezone.utc).strftime("%Y%m%d")
+    suffix = "" if dataset == "all" else f"-{dataset}"
+    return FileResponse(
+        temporary_path,
+        media_type="text/csv; charset=utf-8",
+        filename=f"mumbai-traffic-readings-{date}{suffix}.csv",
+        headers={
+            "Cache-Control": "private, no-store, max-age=0",
+            "Pragma": "no-cache",
+            "X-Content-Type-Options": "nosniff",
+            "X-Export-Rows": str(row_count),
+        },
+        background=BackgroundTask(temporary_path.unlink, missing_ok=True),
+    )
 
 
 @app.get("/api/health")

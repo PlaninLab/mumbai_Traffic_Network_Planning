@@ -908,23 +908,8 @@
   }
 
   function renderOverview(body) {
-    const sm = S.data.summary;
-    const m = sm.model;
-    const g = (S.data.od.google || [])[0];
     const scope = scopePresentation();
     const coverage = scopeCounts();
-
-    let corridorTile;
-    if (g) {
-      const kph = g.distance_km / (g.duration_min / 60);
-      corridorTile = tile(
-        fmt(g.duration_min) + " <small>min</small>",
-        "door-to-door, Dahisar → Bandra (" + fmt1(g.distance_km) + " km at <b>" +
-        fmt(kph) + " km/h</b>) <span class='badge measured'>MEASURED</span>", true);
-    } else {
-      corridorTile = '<div class="tile wide empty"><b>Corridor travel time</b> appears ' +
-        "here after the first Google OD reading.</div>";
-    }
 
     body.innerHTML =
       '<div class="sec scope-overview"><h2>' + esc(scope.name) + ' coverage</h2>' +
@@ -938,16 +923,6 @@
       tile(fmt(coverage.awaiting),
         "awaiting first reading — no traffic value has been invented", true) +
       '</div><div class="scope-assurance"><span aria-hidden="true">○</span> New junctions remain context-only until collection starts.</div></div>' +
-      '<div class="sec"><h2>The corridor right now</h2><div class="tiles">' +
-      corridorTile +
-      tile(fmt1(m.total_queue_km) + " <small>km</small>",
-        "total standing queue across <b>" + fmt(m.n_queued_junctions) +
-        "</b> junctions in the peak hour <span class='badge modeled'>MODELED</span>") +
-      tile(fmt(m.delay_pcu_h) + " <small>PCU-h</small>",
-        "lost to congestion every peak hour <span class='badge modeled'>MODELED</span>") +
-      tile(fmt(m.n_junctions),
-        "junctions monitored — volume + queue computed for each <span class='badge modeled'>MODELED</span>", true) +
-      "</div></div>" +
       '<div class="sec"><h2>How to read this map</h2><div class="note">' +
       "<b>Coverage network + hollow circles</b> — real OpenStreetMap major roads and intersections for the selected BMC/MMRDA area. A hollow circle is awaiting its first reading.<br><br>" +
       "<b>Colored spine</b> — measured probe speed on the WEH, by time of day (play it below the map).<br><br>" +
