@@ -287,6 +287,94 @@ def run(grid: int = 8, total_pcu: float = 60000.0, beta: float = 2.0,
     return summary
 
 
+# --------------------------------------------------------------------------- #
+# Simulation timeline — peak build-up (demand ramp)
+# --------------------------------------------------------------------------- #
+# A static UE model has no clock, so the "timeline" ramps total demand from
+# off-peak to over-peak and re-solves each step. Watching V/C spread as demand
+# rises is a legible simulation of the peak building — and a fast way to eyeball
+# whether the network behaves sensibly (bugs show as junctions lighting up in the
+# wrong places or out of order).
+RAMP = [
+    (0.35, "Early · 35% of peak demand"),
+    (0.55, "Building · 55%"),
+    (0.75, "Rising · 75%"),
+    (0.90, "Near peak · 90%"),
+    (1.00, "PEAK · 100%"),
+    (1.15, "Over-peak · 115%"),
+    (1.30, "Gridlock test · 130%"),
+]
+
+
+def run_frames(grid: int = 8, base_total: float = 60000.0, beta: float = 2.0,
+               ramp=RAMP, max_iter: int = 60, tol: float = 0.002,
+               verbose: bool = True) -> dict:
+    """Solve the BMC UE at each demand level; record per-junction V/C, volume and
+    standing queue per frame -> data/processed/bmc/bmc_frames.json."""
+    import osmnx as ox
+
+    G = load_enriched_graph(BMC_ENRICHED)
+    zones = build_grid_zones(G, grid=grid)
+    base_veh = build_demand(G, zones, beta=beta, total_pcu=base_total)
+    base_pairs = od_pairs(zones, base_veh)
+
+    junctions = _load_bmc_junctions()
+    lons = np.array([j["lon"] for j in junctions], float)
+    lats = np.array([j["lat"] for j in junctions], float)
+    jnode = [int(n) for n in ox.nearest_nodes(G, lons, lats)]   # map once
+
+    per_j = [{"vc": [], "vol": [], "q": []} for _ in junctions]
+    frames = []
+    for mult, label in ramp:
+        pairs = [(o, d, f * mult) for o, d, f in base_pairs]
+        res = assign(G, pairs, alpha=0.15, beta=4.0, max_iter=max_iter, tol=tol, verbose=False)
+        df = metrics.link_table(G, res)
+        incoming = {}
+        for r in df.itertuples():
+            lanes = int(r.lanes) if not pd.isna(r.lanes) else 1
+            incoming.setdefault(int(r.v), []).append(
+                (float(r.flow_pcu_hr), float(r.capacity_pcu_hr), lanes))
+        for i, node in enumerate(jnode):
+            appr = incoming.get(node, [])
+            vol = sum(f for f, _, _ in appr)
+            vc = max((f / c for f, c, _ in appr if c > 0), default=0.0)
+            qkm = 0.0
+            for f, c, lanes in appr:
+                if f > c:
+                    qkm = max(qkm, (f - c) * PEAK_DURATION_H / (max(1, lanes) * JAM_DENSITY_VEH_KM_LANE))
+            per_j[i]["vc"].append(round(vc, 2))
+            per_j[i]["vol"].append(round(vol, 0))
+            per_j[i]["q"].append(round(qkm, 2))
+        vc_active = df[df["flow_pcu_hr"] > 0]["vc_ratio"]
+        frames.append({"mult": mult, "label": label,
+                       "tstt_pcu_h": round(metrics.tstt_hours(res), 0),
+                       "max_vc": round(float(vc_active.max()), 2) if len(vc_active) else 0.0,
+                       "over_cap": int((vc_active > 1.0).sum())})
+        if verbose:
+            print(f"[bmc-frames] {label:<26} TSTT={frames[-1]['tstt_pcu_h']:>7} "
+                  f"max_vc={frames[-1]['max_vc']}  over_cap={frames[-1]['over_cap']}")
+
+    # Faint road skeleton for orientation: BMC motorway/trunk/primary geometry.
+    context = []
+    cov = json.loads(COVERAGE_JSON.read_text(encoding="utf-8"))
+    for L in cov.get("links", []):
+        if L.get("in_bmc") and L.get("cls", 9) <= 2 and L.get("p"):
+            context.append(L["p"])
+
+    jout = [{"id": j["id"], "name": j.get("name") or "",
+             "lat": j["lat"], "lon": j["lon"], **per_j[i]}
+            for i, j in enumerate(junctions)]
+    out = {"generated_utc": datetime.now(timezone.utc).isoformat(),
+           "frames": frames, "junctions": jout, "context_links": context}
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    (OUT_DIR / "bmc_frames.json").write_text(json.dumps(out, separators=(",", ":")),
+                                             encoding="utf-8")
+    if verbose:
+        print(f"[bmc-frames] {len(frames)} frames x {len(jout)} junctions "
+              f"+ {len(context)} context roads -> {OUT_DIR / 'bmc_frames.json'}")
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Hybrid BMC scale-up (assignment + observation).")
     ap.add_argument("--grid", type=int, default=8, help="TAZ grid resolution (default 8x8).")
@@ -294,7 +382,13 @@ def main() -> None:
     ap.add_argument("--beta", type=float, default=2.0)
     ap.add_argument("--max-iter", type=int, default=60)
     ap.add_argument("--tol", type=float, default=0.001)
+    ap.add_argument("--frames", action="store_true",
+                    help="Also solve the demand-ramp timeline -> bmc_frames.json.")
     args = ap.parse_args()
+
+    if args.frames:
+        run_frames(grid=args.grid, base_total=args.total, beta=args.beta)
+        return
 
     s = run(grid=args.grid, total_pcu=args.total, beta=args.beta,
             max_iter=args.max_iter, tol=args.tol)

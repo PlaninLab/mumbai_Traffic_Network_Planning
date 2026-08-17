@@ -44,8 +44,23 @@ Every junction in `bmc_junction_metrics.json` carries a `source`:
   highest link V/Cs include a connector-loading artifact. A ward-based zone system (next step) fixes this.
 - **Queues** are the standing "if drivers hold their route" upper bound (peak-hour input–output).
 
+## Visual simulation (built)
+
+`bmc_scale.py --frames` re-solves the UE at a **demand ramp** (35% → 130% of peak) and records
+per-junction V/C, volume and queue per step → `bmc_frames.json`. `src/viz/bmc_sim_map.py` turns
+that into **`docs/bmc_sim.html`** — a self-contained (offline) deck.gl map of all 867 junctions
+colored by V/C, sized by volume, with a ▶/slider that plays the peak building across Greater
+Mumbai. Verified: frame 1 (35%) = 0 congested junctions; frame 7 (130%) = 50 busy / 13 over
+capacity, with red clusters at BKC, Eastern Express Hwy and Sion. Watching the ramp is a fast way
+to spot bugs (junctions lighting up in the wrong place or out of order).
+
+```bash
+python -m src.scenarios.bmc_scale --frames    # solve the ramp -> bmc_frames.json
+python -m src.viz.bmc_sim_map                  # -> docs/bmc_sim.html
+```
+
 ## Next to make it planning-grade
 1. Ward-based TAZs + CTS demand controls for all of BMC (replace the density proxy).
 2. Run the junction collector so `source` flips to `observation` at measured junctions.
 3. Measure widths (Phase 0 worklist now covers all 867 BMC junctions) → capacity from effective width.
-4. Surface the BMC junction layer on the interactive map.
+4. Fold the BMC junction + simulation layer into the main interactive map (`/map`).
