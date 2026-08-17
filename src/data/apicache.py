@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -78,6 +79,8 @@ def cached_request(provider: str, endpoint: str, url: str, *,
     # ProviderError subclasses RuntimeError, so older broad handlers still catch it.
     from src.data import incidents
 
+    point = f"{ident.get('lat')},{ident.get('lon')}" if "lat" in ident else ""
+    started = time.monotonic()
     try:
         if method.upper() == "POST":
             resp = requests.post(url, params=params, json=json_body,
@@ -85,21 +88,31 @@ def cached_request(provider: str, endpoint: str, url: str, *,
         else:
             resp = requests.get(url, params=params, headers=headers, timeout=timeout)
     except (requests.ConnectionError, requests.Timeout) as e:
-        raise incidents.ProviderError(f"{provider} unreachable: {e}", kind="network") from e
+        raise incidents.ProviderError(
+            f"{provider} unreachable: {e}", kind="network",
+            evidence={"endpoint": url.split("?")[0][:300], "sample_point": point or None,
+                      "latency_ms": int((time.monotonic() - started) * 1000),
+                      "response_body": f"{type(e).__name__}: {e}"[:2000]}) from e
+
+    ev = incidents.evidence_from_response(
+        resp, url=url, latency_ms=(time.monotonic() - started) * 1000, sample_point=point)
 
     if resp.status_code == 429:
         raise incidents.ProviderError(
             f"{provider} rate/quota limit hit (HTTP 429). Try later.",
-            kind="rate_limit", status=429)
+            kind="rate_limit", status=429, evidence=ev)
     if resp.status_code in (401, 403):
         raise incidents.ProviderError(
             f"{provider} rejected the API key (HTTP {resp.status_code}).",
-            kind="auth", status=resp.status_code)
+            kind="auth", status=resp.status_code, evidence=ev)
     if resp.status_code >= 500:
         raise incidents.ProviderError(
             f"{provider} server error (HTTP {resp.status_code}).",
-            kind="server_error", status=resp.status_code)
-    resp.raise_for_status()
+            kind="server_error", status=resp.status_code, evidence=ev)
+    if resp.status_code >= 400:
+        raise incidents.ProviderError(
+            f"{provider} rejected the request (HTTP {resp.status_code}).",
+            kind="other", status=resp.status_code, evidence=ev)
     body = resp.json()
     _write(path, {**ident, "_endpoint": endpoint}, body)
     return body

@@ -149,7 +149,34 @@
   <h2 class="section-title">Provider health</h2>
   <div class="card">
     {% set h = incidents.hold %}
-    {% if h.holding %}
+    {% set L = incidents.latch %}
+    {% if L.latched %}
+      <p>
+        <span class="pill bad">Stopped</span>
+        Collection stopped on <strong>{{ L.latched_utc[:19]|replace("T"," ") }} UTC</strong>
+        and will not resume on its own. {{ L.latch_reason }}
+      </p>
+      {% if incidents.can_resume %}
+      <form method="post" action="/api/collector/resume"
+            style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        <input type="password" name="token" placeholder="Admin token" required
+               style="padding:8px 10px; border:1px solid var(--line); border-radius:8px;
+                      background:var(--bg); color:var(--ink); font-size:.9rem;">
+        <button type="submit" class="btn" style="border:none; cursor:pointer;">
+          Resume collection
+        </button>
+      </form>
+      <p class="note" style="margin-top:8px;">
+        Resuming starts spending against the metered API again. Check what went wrong first.
+      </p>
+      {% else %}
+      <p class="note" style="margin-top:10px;">
+        Resuming from here is disabled. Set <code>ADMIN_TOKEN</code> on the web service to
+        enable the button, or run
+        <code>python -m src.data.incidents --resume --provider here</code> on the server.
+      </p>
+      {% endif %}
+    {% elif h.holding %}
       <p>
         <span class="pill bad">Paused</span>
         HERE failed {{ h.consecutive }} time{{ "s" if h.consecutive != 1 else "" }} in a row.
@@ -164,6 +191,41 @@
       </p>
     {% else %}
       <p><span class="pill ok">Healthy</span> No provider failures recorded.</p>
+    {% endif %}
+
+    <p class="note" style="margin-top:10px;">
+      Failed calls since the last successful sweep:
+      <strong>{{ L.failed_calls }} of {{ L.threshold }}</strong> — collection stops for
+      manual review at the limit.
+    </p>
+
+    {% if incidents.outages %}
+    <h3 style="margin:18px 0 6px; font-size:.95rem;">Outage windows</h3>
+    <p class="sub">Quote these to the provider — the correlation IDs are their own.</p>
+    <div class="t-scroll">
+      <table>
+        <thead><tr>
+          <th>From (UTC)</th><th class="num">Minutes</th><th class="num">Failures</th>
+          <th class="num">Calls that reached them</th><th>Type</th><th>SLO tier</th>
+        </tr></thead>
+        <tbody>
+          {% for o in incidents.outages %}
+          <tr>
+            <td>{{ o.first_utc[:19]|replace("T"," ") }}</td>
+            <td class="num">{{ o.duration_minutes }}</td>
+            <td class="num">{{ o.failures }}</td>
+            <td class="num">{{ o.billable_calls }}</td>
+            <td>{{ o.kinds|join(", ") }}{% if o.statuses %} ({{ o.statuses|join(", ") }}){% endif %}</td>
+            <td class="note">{{ o.slo or "—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="note" style="margin-top:8px;">
+      Full evidence with every correlation ID:
+      <code>python -m src.data.incidents --export --provider here</code>
+    </p>
     {% endif %}
 
     {% if incidents.recent %}

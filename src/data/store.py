@@ -76,6 +76,9 @@ CREATE TABLE IF NOT EXISTS api_usage (
 );
 
 -- Provider outages, rate limits and auth failures (see src/data/incidents.py).
+-- The trace columns exist so a billing dispute can be evidenced: correlation_id,
+-- request_id and server_date are the provider's OWN identifiers for the failed
+-- call, which is what their support will ask for.
 CREATE TABLE IF NOT EXISTS api_incidents (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     provider        TEXT NOT NULL,
@@ -84,17 +87,44 @@ CREATE TABLE IF NOT EXISTS api_incidents (
     http_status     INTEGER,
     detail          TEXT,
     requests_issued INTEGER,          -- how far the sweep got before aborting
-    consecutive     INTEGER
+    consecutive     INTEGER,
+    endpoint        TEXT,             -- URL path that failed
+    correlation_id  TEXT,             -- X-Correlation-ID
+    request_id      TEXT,             -- X-Request-Id
+    slo             TEXT,             -- x-slo: the service tier the call was rated against
+    server_date     TEXT,             -- provider's own Date header
+    latency_ms      INTEGER,
+    response_body   TEXT,             -- the provider's error payload, truncated
+    sample_point    TEXT              -- lat,lon the call was for
 );
 CREATE INDEX IF NOT EXISTS ix_incident_time ON api_incidents(occurred_utc);
 
--- Current back-off per provider. Persistent so a restart cannot forget it.
+-- Back-off and hard-stop latch per provider. Persistent so a restart cannot
+-- forget either: the collector sweeps immediately on startup.
 CREATE TABLE IF NOT EXISTS api_hold (
     provider       TEXT PRIMARY KEY,
-    consecutive    INTEGER NOT NULL DEFAULT 0,
-    hold_until_utc TEXT
+    consecutive    INTEGER NOT NULL DEFAULT 0,   -- consecutive failed SWEEPS
+    hold_until_utc TEXT,                         -- timed back-off
+    failed_calls   INTEGER NOT NULL DEFAULT 0,   -- failed CALLS since last success
+    latched_utc    TEXT,                         -- hard stop engaged; manual reset only
+    latch_reason   TEXT
 );
 """
+
+# Columns added after the first release. SQLite has no "ADD COLUMN IF NOT EXISTS",
+# so connect() applies these by hand against PRAGMA table_info.
+_MIGRATIONS = {
+    "flow_readings": {"provider": "TEXT"},
+    "api_incidents": {
+        "endpoint": "TEXT", "correlation_id": "TEXT", "request_id": "TEXT",
+        "slo": "TEXT", "server_date": "TEXT", "latency_ms": "INTEGER",
+        "response_body": "TEXT", "sample_point": "TEXT",
+    },
+    "api_hold": {
+        "failed_calls": "INTEGER NOT NULL DEFAULT 0",
+        "latched_utc": "TEXT", "latch_reason": "TEXT",
+    },
+}
 
 _COLUMNS = ["run_id", "fetched_utc", "fetched_ist", "segment", "label", "idx",
             "lat", "lon", "current_speed_kph", "free_speed_kph", "tti",
@@ -107,9 +137,16 @@ def connect() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.executescript(_SCHEMA)
     # Lightweight migration: add columns introduced after the DB was first created.
-    have = {r[1] for r in conn.execute("PRAGMA table_info(flow_readings)")}
-    if "provider" not in have:
-        conn.execute("ALTER TABLE flow_readings ADD COLUMN provider TEXT")
+    # A deployed collector keeps its DB on a volume across releases, so a new
+    # column has to arrive without a manual step.
+    changed = False
+    for table, columns in _MIGRATIONS.items():
+        have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for name, decl in columns.items():
+            if name not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+                changed = True
+    if changed:
         conn.commit()
     return conn
 

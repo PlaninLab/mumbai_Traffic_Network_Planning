@@ -180,3 +180,47 @@ tell a provider outage apart from a dead collector and from an exhausted quota.
 
 Use `--request-pause SECONDS` to space out the individual point requests inside a sweep
 if you ever hit a per-second rate limit.
+
+### Hard stop after repeated failure
+
+The timed back-off handles a blip. A provider that is simply broken needs a person, so
+after **25 failed calls** since the last successful sweep (`--max-failed-calls`, or
+`HERE_FAILURE_LATCH`) collection **stops** and does not restart on its own — not on a
+timer, not on a container restart.
+
+```bash
+python -m src.data.incidents --status --provider here    # is it stopped, and why
+python -m src.data.incidents --resume --provider here    # resume collection
+```
+
+From the dashboard: `/data` → **Provider health** → *Resume collection*. That button
+restarts spending against a metered API, so it is only shown when `ADMIN_TOKEN` is set on
+the web service, and the endpoint refuses outright when it is not. Set it to something
+long and random:
+
+```
+ADMIN_TOKEN=<long random string>
+```
+
+`/api/health` reports `collection_stopped`, `stopped_reason`, `failed_calls` and
+`failed_calls_limit`.
+
+### Evidence for a billing dispute
+
+Every failure records the provider's OWN identifiers, captured at the moment it happened:
+`X-Correlation-ID`, `X-Request-Id`, the `x-slo` tier the call was rated against, their
+`Date` header (their clock, which is what their logs use), our measured latency and their
+error payload.
+
+```bash
+python -m src.data.incidents --outages --provider here   # grouped into windows
+python -m src.data.incidents --export  --provider here   # CSV to attach to a ticket
+```
+
+The outage view is what an argument is made from: *"you were unavailable from X to Y, we
+made N calls into it, here are your correlation IDs, the SLO tier was `traffic-v7-flow-small`."*
+
+Note what is realistic: providers do not normally bill 429s or 5xx responses, so the
+number worth disputing is usually **not** the failed calls themselves — it is a service
+credit against the SLO for the outage window. The `billable_calls` column counts requests
+that actually reached them, which is the conservative figure to quote.

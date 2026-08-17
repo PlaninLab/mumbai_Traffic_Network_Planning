@@ -109,7 +109,7 @@ def _print_plan(sched, n, start, end, peak_min, off_min, night_min=None):
 
 def run_day(n=25, until=None, minutes=None, peak_min=10, off_min=15,
             night_min=None, provider="here", max_calls_month=None,
-            request_pause=0.0, dry_run=False) -> None:
+            request_pause=0.0, latch_after=None, dry_run=False) -> None:
     now = seg.ist_now()
     end = _end_time(now, until, minutes)
     sched = simulate_schedule(now, end, peak_min, off_min, night_min)
@@ -137,13 +137,28 @@ def run_day(n=25, until=None, minutes=None, peak_min=10, off_min=15,
         return
 
     print("\n[collect_day] Starting full-day collection. Ctrl-C to stop.\n")
-    count, starved, held = 0, False, False
+    count, starved, held, stopped = 0, False, False, False
     while seg.ist_now() <= end:
         s = seg.current_segment()
         # Provider back-off is a GATE, not an extra sleep. Skipping the sweep here
         # means no reservation and no requests, and the loop still falls through to
         # its normal interval below — so the sampling grid stays intact and the
         # collector simply misses the slots the provider cannot serve.
+        lat = incidents.latch_state(provider)
+        if lat["latched"]:
+            if not stopped:
+                print(f"[collect_day] STOPPED — {lat['latch_reason']}")
+                print(f"[collect_day] No further calls. Resume from the dashboard, or: "
+                      f"python -m src.data.incidents --resume --provider {provider}")
+                stopped = True
+            interval = _interval_for(seg.ist_now(), s, peak_min, off_min, night_min)
+            nxt = seg.ist_now() + timedelta(minutes=interval)
+            if nxt > end:
+                break
+            time.sleep(interval * 60)
+            continue
+        stopped = False
+
         hold = incidents.hold_state(provider)
         if hold["holding"]:
             if not held:
@@ -161,7 +176,8 @@ def run_day(n=25, until=None, minutes=None, peak_min=10, off_min=15,
         try:
             collect_flow.collect(n, label=s, segment=s, provider=provider,
                                  max_calls_month=max_calls_month,
-                                 request_pause=request_pause)
+                                 request_pause=request_pause,
+                                 latch_after=latch_after)
             segment_summary.build_summary()   # refresh dashboard data
             count += 1
             starved = False
@@ -212,6 +228,9 @@ def main() -> None:
                          "Counts ALL calls, including any free allowance.")
     ap.add_argument("--request-pause", type=float, default=0.0,
                     help="Seconds between consecutive point requests (default 0).")
+    ap.add_argument("--max-failed-calls", type=int, default=None,
+                    help="Failed calls since the last success that trigger a HARD STOP "
+                         "needing a manual resume (default 25).")
     ap.add_argument("--dry-run", action="store_true", help="Preview the schedule; no API calls.")
     args = ap.parse_args()
 
@@ -219,7 +238,8 @@ def main() -> None:
             peak_min=args.peak_interval, off_min=args.offpeak_interval,
             night_min=args.night_interval, provider=args.provider,
             max_calls_month=args.max_calls_month,
-            request_pause=args.request_pause, dry_run=args.dry_run)
+            request_pause=args.request_pause, latch_after=args.max_failed_calls,
+            dry_run=args.dry_run)
 
 
 if __name__ == "__main__":

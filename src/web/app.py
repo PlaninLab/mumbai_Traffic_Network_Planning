@@ -20,11 +20,15 @@ See the README "Hosting" section for Docker / PaaS deployment.
 from __future__ import annotations
 
 import json
+import os
+import secrets
 from pathlib import Path
+from urllib.parse import parse_qs
 
 import pandas as pd
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
+                               RedirectResponse)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
@@ -115,11 +119,56 @@ def budget_view(provider: str = "here") -> dict:
 
 
 def incidents_view(provider: str = "here") -> dict:
-    """Provider failures and the current back-off. Never raises."""
+    """Provider failures, back-off and hard-stop state. Never raises."""
     try:
-        return {"hold": incidents.hold_state(provider), "recent": incidents.recent(15)}
+        return {"hold": incidents.hold_state(provider),
+                "latch": incidents.latch_state(provider),
+                "recent": incidents.recent(15),
+                "outages": incidents.outages(provider)[:5],
+                "can_resume": bool(os.environ.get("ADMIN_TOKEN", "").strip())}
     except Exception:  # noqa: BLE001 — telemetry must not take the page down
-        return {"hold": {"holding": False, "consecutive": 0}, "recent": []}
+        return {"hold": {"holding": False, "consecutive": 0},
+                "latch": {"latched": False, "failed_calls": 0,
+                          "threshold": incidents.DEFAULT_LATCH_AFTER},
+                "recent": [], "outages": [], "can_resume": False}
+
+
+@app.post("/api/collector/resume")
+async def resume_collection(request: Request, provider: str = "here"):
+    """Clear the hard stop so collection restarts at the next slot.
+
+    Guarded by ADMIN_TOKEN. This endpoint restarts spending against a metered API,
+    so on a dashboard that may be publicly reachable it must not be open — with no
+    token configured it REFUSES rather than defaulting to open.
+
+    The token is read from the urlencoded body (or an X-Admin-Token header) rather
+    than declared with fastapi.Form, which would pull in python-multipart purely
+    for this one field — and would fail at import time, taking the whole dashboard
+    down, on any deployment that lacks it.
+    """
+    expected = os.environ.get("ADMIN_TOKEN", "").strip()
+    if not expected:
+        return JSONResponse(
+            {"error": "Resume is disabled. Set ADMIN_TOKEN on the web service to "
+                      "enable it, or run: python -m src.data.incidents --resume"},
+            status_code=403)
+
+    token = request.headers.get("X-Admin-Token", "")
+    if not token:
+        # Parse the urlencoded body directly. Starlette's request.form() needs
+        # python-multipart to be present to return anything here, and adding that
+        # dependency for one field would also make the whole dashboard fail to
+        # import wherever it is missing.
+        try:
+            raw = (await request.body()).decode("utf-8", "replace")
+            token = parse_qs(raw).get("token", [""])[0]
+        except Exception:  # noqa: BLE001 — a malformed body is simply not a token
+            token = ""
+    if not secrets.compare_digest(str(token).strip(), expected):
+        return JSONResponse({"error": "Wrong token."}, status_code=403)
+
+    incidents.reset_latch(provider, by="dashboard")
+    return RedirectResponse("/data", status_code=303)
 
 
 @app.get("/data", response_class=HTMLResponse)
@@ -141,7 +190,8 @@ def api_data():
 @app.get("/api/health")
 def health():
     b = budget_view()
-    hold = incidents_view()["hold"]
+    iv = incidents_view()
+    hold, latch = iv["hold"], iv["latch"]
     inv_totals = store.inventory()["totals"]
     return {"status": "ok",
             "has_segments": (PROCESSED / "segment_overview.json").exists(),
@@ -158,4 +208,9 @@ def health():
             # "quota reached" — three states that look identical from outside.
             "provider_hold": hold.get("holding", False),
             "provider_hold_minutes": hold.get("minutes_remaining", 0),
-            "consecutive_failures": hold.get("consecutive", 0)}
+            "consecutive_failures": hold.get("consecutive", 0),
+            # Hard stop: collection will NOT resume without a person.
+            "collection_stopped": latch.get("latched", False),
+            "stopped_reason": latch.get("latch_reason"),
+            "failed_calls": latch.get("failed_calls", 0),
+            "failed_calls_limit": latch.get("threshold")}

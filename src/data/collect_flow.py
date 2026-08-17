@@ -100,7 +100,16 @@ def _flow_reading(provider: str, lat: float, lon: float):
 
 def collect(n_points: int, label: str, segment: str | None = None,
             provider: str = "tomtom", max_calls_month: int | None = None,
-            request_pause: float = 0.0) -> Path:
+            request_pause: float = 0.0, latch_after: int | None = None) -> Path:
+    # The hard stop wins over everything: no reservation, no graph load, no calls.
+    # (Named `latch`, not `lat` — `lat` is the latitude in the sweep loop below.)
+    latch = incidents.latch_state(provider)
+    if latch["latched"]:
+        raise incidents.ProviderError(
+            f"{provider} collection is STOPPED since {latch['latched_utc'][:19]} UTC — "
+            f"{latch['latch_reason']}. Resume it before collecting again.",
+            kind="latched")
+
     # Reserve the whole sweep against the monthly cap BEFORE doing any work —
     # before the graph load, before the first request. A sweep that dies partway
     # keeps its reservation, which is what bounds a restart loop (see budget.py).
@@ -138,12 +147,15 @@ def collect(n_points: int, label: str, segment: str | None = None,
             if e.kind in incidents.ABORT_IMMEDIATELY or \
                     provider_fails >= incidents.ABORT_AFTER_CONSECUTIVE:
                 budget.refund(provider, max(0, n_points - issued))
-                state = incidents.record(provider, e, requests_issued=issued)
+                state = incidents.record(provider, e, requests_issued=issued,
+                                         failed_calls=provider_fails,
+                                         latch_after=latch_after)
+                tail = (f"; STOPPED — {state['latch_reason']}" if state["latched"]
+                        else f"; holding {state['hold_minutes']} min "
+                             f"(failure #{state['consecutive']})")
                 raise incidents.ProviderError(
-                    f"{e} — aborted after {issued} of {n_points} requests; "
-                    f"holding {state['hold_minutes']} min "
-                    f"(failure #{state['consecutive']})",
-                    kind=e.kind, status=e.status) from e
+                    f"{e} — aborted after {issued} of {n_points} requests{tail}",
+                    kind=e.kind, status=e.status, evidence=e.evidence) from e
             continue
         except Exception as e:  # noqa: BLE001 — one bad point, not a bad provider
             issued += 1
@@ -174,9 +186,12 @@ def collect(n_points: int, label: str, segment: str | None = None,
         # what was never sent and say so plainly, rather than raising IndexError
         # off rows[0] and leaving the real cause unreported.
         budget.refund(provider, max(0, n_points - issued))
-        raise incidents.ProviderError(
+        err = incidents.ProviderError(
             f"{provider}: {n_points} points attempted, none returned usable data.",
             kind="other")
+        incidents.record(provider, err, requests_issued=issued,
+                         failed_calls=n_points, latch_after=latch_after)
+        raise err
 
     with out_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
@@ -213,6 +228,10 @@ def main() -> None:
                         help="Collect even if the current time is outside the --segment window.")
     parser.add_argument("--provider", choices=["tomtom", "here"], default="tomtom",
                         help="Flow data source (default tomtom; 'here' needs HERE_API_KEY).")
+    parser.add_argument("--max-failed-calls", type=int, default=None,
+                        help="Failed calls since the last success that trigger a HARD "
+                             "STOP needing a manual resume (default 25). Overrides "
+                             "<PROVIDER>_FAILURE_LATCH / PROVIDER_FAILURE_LATCH.")
     parser.add_argument("--request-pause", type=float, default=0.0,
                         help="Seconds to wait between consecutive point requests "
                              "(default 0). Spreads a sweep out to stay under a "
@@ -241,7 +260,8 @@ def main() -> None:
     try:
         collect(args.n, label, segment=args.segment, provider=args.provider,
                 max_calls_month=args.max_calls_month,
-                request_pause=args.request_pause)
+                request_pause=args.request_pause,
+                latch_after=args.max_failed_calls)
     except budget.BudgetExhausted as e:
         print(f"[collect_flow] BUDGET STOP — {e}")
         print("  No call was made. Raise the cap, or wait for the month to roll over.")

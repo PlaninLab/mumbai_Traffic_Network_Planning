@@ -32,6 +32,7 @@ import argparse
 import hashlib
 import json
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -118,22 +119,30 @@ def _get(url: str, params: dict, endpoint: str, use_cache: bool = True) -> dict:
     # Typed failures — see the note in apicache.cached_request.
     from src.data import incidents
 
+    point = params.get("point", "")
+    started = time.monotonic()
     try:
         resp = requests.get(url, params=params, timeout=DEFAULT_TIMEOUT)
     except (requests.ConnectionError, requests.Timeout) as e:
-        raise incidents.ProviderError(f"TomTom unreachable: {e}", kind="network") from e
+        raise incidents.ProviderError(
+            f"TomTom unreachable: {e}", kind="network",
+            evidence={"endpoint": url.split("?")[0][:300], "sample_point": point or None,
+                      "latency_ms": int((time.monotonic() - started) * 1000),
+                      "response_body": f"{type(e).__name__}: {e}"[:2000]}) from e
+    ev = incidents.evidence_from_response(
+        resp, url=url, latency_ms=(time.monotonic() - started) * 1000, sample_point=point)
     if resp.status_code == 429:
         raise incidents.ProviderError(
             "TomTom free-tier daily limit hit (HTTP 429). Resume tomorrow.",
-            kind="rate_limit", status=429)
+            kind="rate_limit", status=429, evidence=ev)
     if resp.status_code in (401, 403):
         raise incidents.ProviderError(
             f"TomTom rejected the API key (HTTP {resp.status_code}).",
-            kind="auth", status=resp.status_code)
+            kind="auth", status=resp.status_code, evidence=ev)
     if resp.status_code >= 500:
         raise incidents.ProviderError(
             f"TomTom server error (HTTP {resp.status_code}).",
-            kind="server_error", status=resp.status_code)
+            kind="server_error", status=resp.status_code, evidence=ev)
     resp.raise_for_status()
     body = resp.json()
     _write_cache(path, params, body)
