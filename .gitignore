@@ -28,6 +28,11 @@ data/raw/tomtom/collected/*
 # --- Generated network binaries (reproducible via src/network/build_network.py) ---
 *.graphml
 *.gpkg
+# ...except the corridor graph. src/data/collect_flow.py loads it on EVERY reading to
+# place the WEH sample points, so the collector needs it at runtime on the server. It is
+# also the reason `idx` means the same physical location in every reading ever taken —
+# a rebuilt graph would shift the points and break the per-point congestion profile.
+!data/raw/osm/corridor.graphml
 
 # --- SQLite reading store (binary; reproducible via `python -m src.data.store --backfill`) ---
 *.db
