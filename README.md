@@ -199,8 +199,11 @@ mumbai-traffic-tool/
 │   │   └── observed_queue.py      ★ Measured jam length from live speeds (orange+red)
 │   ├── network/                   LAYER 1 — the road model
 │   │   ├── build_network.py       Download the corridor road map from OpenStreetMap
-│   │   ├── enrich_attributes.py   Add lanes, speed, capacity to each road segment
+│   │   ├── build_area.py          ★ Download a wider major-road network (BMC / MMRDA)
+│   │   ├── enrich_attributes.py   Add lanes, speed, capacity (--input for any graph)
 │   │   ├── incident.py            ★ Stopped-vehicle capacity model + queue length
+│   │   ├── road_width.py          ★ Measured road width → capacity (Phase 0)
+│   │   ├── coverage.py            BMC/MMRDA junction + major-road inventory (OSM)
 │   │   ├── zones.py               Split the corridor into 11 travel-analysis zones
 │   │   └── graph_io.py            Load the network with numbers typed correctly
 │   ├── demand/                    LAYER 2 — how many trips go where
@@ -217,20 +220,24 @@ mumbai-traffic-tool/
 │   ├── scenarios/                 LAYER 4 — the what-if engine
 │   │   ├── define_scenario.py     Widen / add / close / place-stalled-vehicle a link
 │   │   ├── evaluate.py            ★ Simulate ALL cases on one demand → comparison table
+│   │   ├── bmc_scale.py           ★ Scale to Greater Mumbai (BMC) — hybrid + timeline sim
 │   │   └── robustness.py          Re-run all cases under many settings (sensitivity)
 │   ├── viz/                       LAYER 5 — reporting
 │   │   ├── network_map.py         Congestion maps (live snapshot + V/C per scenario)
 │   │   ├── dashboard.py           Scenario comparison bar charts
 │   │   ├── map_export.py          ★ Corridor-map payloads + offline corridor_map.html
+│   │   ├── bmc_sim_map.py         ★ BMC junctions + peak build-up sim → docs/bmc_sim.html
 │   │   └── report.py              Self-contained HTML stakeholder report
 │   └── web/                       LAYER 5+ — hosting
 │       ├── app.py                 ★ FastAPI app (dashboard + map + report + JSON API)
 │       ├── static/                Corridor-map app (map_app.js, map.css, vendored deck.gl)
 │       └── templates/             Dashboard + map HTML (Jinja)
 ├── data/
-│   ├── raw/         OpenStreetMap extract, cached TomTom responses + collected snapshots
-│   └── processed/   Enriched network, zones, OD matrix, scenario/robustness, segments
-├── docs/            Assumptions, data sources, calibration log, all the images above
+│   ├── raw/          OpenStreetMap extract, cached TomTom/HERE responses + snapshots
+│   ├── measurements/ Road-width worklist + your Google-Earth-Pro measurements (Phase 0)
+│   └── processed/    Enriched networks, zones, OD, scenarios, segments, bmc/ outputs
+├── docs/            Assumptions, calibration log, images, OPERATIONS.md, BMC_SCALE.md,
+│                    SATELLITE_OBSTRUCTION.md, bmc_sim.html, corridor_map.html
 ├── scripts/
 │   ├── collect_peak.bat           One-click flow collection (single ad-hoc run)
 │   ├── collect_segment.bat        Collect a peak/avg segment + refresh the summary
@@ -533,24 +540,127 @@ present. All three normalise into the same pipeline (CSV + SQLite + dashboard).
 
 ---
 
-## 8. Possible next steps
+## 7.8 Scaling to Greater Mumbai (BMC) — the hybrid model
 
-Roughly in priority order:
+The WEH corridor is the pilot. The model now scales to the **whole BMC major-road network**
+(3,940 nodes / 6,922 links / 1,369 km, **867 tracked junctions**), full details in
+[`docs/BMC_SCALE.md`](docs/BMC_SCALE.md). It is a **hybrid**: a Frank-Wolfe assignment where we
+can build demand, and observation-driven per-junction metrics elsewhere (each junction carries a
+`source` — `model` / `observation` / `capacity_only`).
 
-1. **Collect one working-day peak reading** → unlock real calibration (highest value, lowest effort).
-2. **Calibrate demand to real volumes** — replace the synthetic gravity model with the Zhang
-   et al. (2025) "OD-from-travel-times" method using TomTom data. Biggest accuracy jump.
-3. **Add induced demand** — let new capacity attract new trips, so project benefits aren't overstated.
-4. **Verify lane counts** on the WEH spine from satellite imagery (fixes the 84%-guessed inputs).
-5. **Real census wards** for the zones (replaces the placeholder latitude bands).
-6. **A polished stakeholder report / interactive map** for non-technical decision-makers.
-7. **Microsimulation (SUMO)** for true incident dynamics and signal timing, once the static
-   model is trusted.
+```bash
+# 1. Download the BMC major-road network from OSM (slow ~a few min; once)
+python -m src.network.build_area --scope bmc --tag bmc
+# 2. Enrich it — lanes, speed, capacity (and measured-width overrides if present)
+python -m src.network.enrich_attributes --input data/raw/osm/bmc.graphml --tag bmc
+# 3. Solve the BMC equilibrium + per-junction metrics (V/C, volume, standing queue)
+python -m src.scenarios.bmc_scale
+#    → data/processed/bmc/bmc_summary.json + bmc_junction_metrics.json
+```
 
-See [`mumbai-traffic-planning-project-plan.md`](mumbai-traffic-planning-project-plan.md) §7 for
-the full upgrade path.
+**Visual simulation with a timeline** — watch congestion build across Greater Mumbai as demand
+ramps from off-peak to over-peak (a legible way to spot bugs early):
+
+```bash
+python -m src.scenarios.bmc_scale --frames   # re-solve at demand 35%→130% → bmc_frames.json
+python -m src.viz.bmc_sim_map                 # → docs/bmc_sim.html (self-contained, offline)
+```
+
+Open **`docs/bmc_sim.html`** in any browser: 867 junctions colored by V/C, sized by volume, with
+a ▶/slider that plays the peak building. Red clusters land on the real chokepoints (BKC–Sealink,
+Eastern Express Hwy, Sion). *Caveat:* BMC demand is still a synthetic density proxy — the
+*pattern* of congestion is trustworthy, absolute volumes are illustrative (see next steps).
 
 ---
 
-*Baseline status: Phases 0–5 complete and working end-to-end. Results are structurally sound;
-absolute numbers await peak-hour calibration.*
+## 7.9 Measured road width → capacity (Phase 0)
+
+Capacity today mostly comes from **guessed lane counts** (~84% imputed). This replaces that, per
+link, with **measured carriageway width** — `capacity = (effective_width / 3.5 m) × per-lane PCU`,
+and the encroachment factor becomes a measured `effective/total` instead of a flat 0.85. This is
+the free, highest-accuracy width upgrade (full plan + the satellite roadmap in
+[`docs/SATELLITE_OBSTRUCTION.md`](docs/SATELLITE_OBSTRUCTION.md)).
+
+```bash
+# 1. Generate the priority junctions to measure (WEH + high-class BMC first)
+python -m src.network.road_width --worklist --scope bmc --limit 867
+#    → data/measurements/road_widths_template.csv
+# 2. In Google Earth Pro, ruler across each junction's carriageway; fill
+#    measured_total_width_m (+ measured_effective_width_m where you can see parking/encroachment);
+#    save the filled file as data/measurements/road_widths.csv
+# 3. Apply — override capacity on the nearest network link (250 m distance guard)
+python -m src.network.road_width --apply
+python -m src.network.road_width --status     # how many measurements are filled in
+```
+
+Once `road_widths.csv` has rows, re-running `enrich_attributes` folds the measured widths in
+automatically (it is a no-op while the file is empty).
+
+---
+
+## 7.10 When to rebuild — after new data or a model change
+
+Nothing recomputes itself except the dashboard (which reads the store live). After any of these,
+run the matching command. All are idempotent and safe to re-run.
+
+| After you… | Run | Refreshes |
+|-----------|-----|-----------|
+| **Collected new speed readings** (any `collect_*`) | `python -m src.data.segment_summary` | `segment_overview.json` (dashboard peak/avg, observed queue). *The full-day/segment scripts already do this.* |
+| Collected new readings + want the **corridor map** current | `python -m src.assignment.intersections` then `python -m src.viz.map_export` | `/map` payloads (film, junctions, queues) |
+| Collected **junction** readings (`collect_intersections`) | `python -m src.viz.map_export` | coverage layer flips junctions to *collected* |
+| Filled in **road widths** (Phase 0) | `python -m src.network.enrich_attributes` (corridor) / `--input … --tag bmc` (BMC) | capacity from measured width |
+| Added a **provider key** (HERE/Google) | nothing — clients pick it up on next call | — |
+| Changed **demand / capacity / network** | `run_assignment` → `evaluate` → `robustness` → `dashboard` | base case, all scenarios, sensitivity, charts |
+| Want the **BMC map/sim** current | `python -m src.scenarios.bmc_scale --frames` then `python -m src.viz.bmc_sim_map` | `docs/bmc_sim.html` |
+| Got a **weekday peak reading** (the big one) | `python -m src.demand.calibration` | fits BPR α/β to real congestion |
+| Deploying | `docker compose up --build -d` | rebuilds the web + collector image |
+
+**Rule of thumb:** *collection → `segment_summary`* (dashboard); *map change → `map_export`* or
+*`bmc_sim_map`*; *model input change → `run_assignment` → `evaluate`*. When in doubt, the
+end-to-end rebuild is the ordered pipeline in [§7](#7-setup--how-to-run) + §7.8.
+
+---
+
+## 8. Possible next steps — and how to achieve each
+
+Roughly in priority order. The first three are the difference between "structurally sound" and
+"planning-grade".
+
+1. **Collect a working-day peak reading** — *unlocks real BPR calibration (β is stuck on its
+   floor on holiday data).* **How:** run the weekday collector for 3–5 Mon–Fri days
+   (`register_weekday_tasks.ps1 -FullDay`, or `collect_day` foreground), then
+   `python -m src.demand.calibration`. Nearly free; highest value. See [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+
+2. **Ward-based BMC demand** — *replaces the synthetic density proxy so BMC volumes become real,
+   not just structural.* **How:** build TAZs from BMC ward polygons (census population +
+   employment), swap the proxy in `bmc_scale.build_demand`, then re-run `bmc_scale --frames`.
+   The single biggest BMC accuracy jump.
+
+3. **Real OD from travel times** — *replaces the synthetic gravity OD with a data-driven matrix.*
+   **How:** collect a Google/HERE OD matrix at peak (`google_client`), calibrate the gravity
+   model to it (Zhang et al. 2025), then run with `--cost-source google`.
+
+4. **Measure road widths (Phase 0)** — *capacity from measured effective width, not guessed
+   lanes.* **How:** the worklist is ready (§7.9) — measure in Google Earth Pro, `--apply`.
+   Start with the WEH + top BMC junctions.
+
+5. **Junction-level live data (hybrid fill)** — *flips BMC junctions from `model` to
+   `observation`.* **How:** run `collect_intersections` / the campaign with a HERE key; the
+   `source` field and coverage map update automatically as readings land.
+
+6. **Satellite obstruction detection** — *persistent obstruction/encroachment/flooding →
+   junction capacity.* **How:** the design + requirements are in
+   [`docs/SATELLITE_OBSTRUCTION.md`](docs/SATELLITE_OBSTRUCTION.md); start with a VLM-agent MVP
+   on a few junctions.
+
+7. **Fold the BMC layer into the main `/map`**, add **induced demand**, and eventually
+   **microsimulation (SUMO)** for true incident dynamics and signal timing.
+
+See [`mumbai-traffic-planning-project-plan.md`](mumbai-traffic-planning-project-plan.md) §7 and
+[`docs/BMC_SCALE.md`](docs/BMC_SCALE.md) for the full upgrade path.
+
+---
+
+*Status: corridor pilot complete end-to-end; scaled to the 867-junction BMC network (hybrid) with
+a visual peak build-up simulation. Results are structurally sound; absolute volumes await
+peak-hour calibration + ward-based demand.*
