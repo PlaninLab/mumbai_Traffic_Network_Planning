@@ -24,6 +24,11 @@ services:
       - "8100:8000"
     environment:
       TZ: Asia/Kolkata
+      # Python block-buffers stdout when it is not a TTY, so a whole day of
+      # collector diagnostics can sit unflushed in a 4-8 KB buffer. The first
+      # deployment's log arrived in bursts an hour apart for exactly this
+      # reason, which made a silent collector impossible to diagnose live.
+      PYTHONUNBUFFERED: "1"
       # Read-only view of the same counter the collector writes, so /data and
       # /api/health can report usage against the cap. No API key here: app.py
       # never calls a paid provider, so the public container can spend nothing.
@@ -48,6 +53,11 @@ services:
     restart: unless-stopped
     environment:
       TZ: Asia/Kolkata
+      # Python block-buffers stdout when it is not a TTY, so a whole day of
+      # collector diagnostics can sit unflushed in a 4-8 KB buffer. The first
+      # deployment's log arrived in bursts an hour apart for exactly this
+      # reason, which made a silent collector impossible to diagnose live.
+      PYTHONUNBUFFERED: "1"
       # HERE_API_KEY is deliberately NOT declared here. Declaring it as
       # ${HERE_API_KEY} would interpolate to an EMPTY STRING when the variable is
       # unset at deploy time, and that empty value would then shadow the key set
