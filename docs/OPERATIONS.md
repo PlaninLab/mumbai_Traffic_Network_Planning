@@ -161,6 +161,7 @@ python -m src.scenarios.evaluate --cost-source google  # scenarios on real Googl
 # API calls used this month    python -m src.data.budget --status --provider here
 # dashboard                    uvicorn src.web.app:app --host 0.0.0.0 --port 8000
 # what has been collected      http://localhost:8000/data
+# download all prod readings   curl -H "Authorization: Bearer $DATA_EXPORT_TOKEN" https://HOST/api/export/readings.csv -o readings.csv
 # scenarios on real OD         python -m src.scenarios.evaluate --cost-source google
 ```
 
@@ -189,6 +190,27 @@ makes no calls, and resumes when the month rolls over. `/api/health` reports
 **See what has been collected** at `/data` on the running dashboard — totals, per-day
 coverage with the peak/avg/off-peak split, the latest readings, and the per-point corridor
 profile. It reads the store live, so it fills in as the collector writes.
+
+**Download the collected observations** from production through the read-only export API.
+Set a long random `DATA_EXPORT_TOKEN` on the web service and redeploy; leaving it empty
+disables the endpoint. The default export combines corridor and regional intersection
+measurements. It intentionally excludes operational tables such as API usage, incidents,
+campaign claims and failure response bodies.
+
+```bash
+curl --fail --show-error --location \
+  -H "Authorization: Bearer $DATA_EXPORT_TOKEN" \
+  https://HOST/api/export/readings.csv \
+  -o mumbai-traffic-readings.csv
+
+# Optional subsets:
+# .../api/export/readings.csv?dataset=corridor
+# .../api/export/readings.csv?dataset=intersections
+```
+
+Use an authorization header rather than a query-string token so credentials do not land
+in reverse-proxy access logs or browser history. Rotate `DATA_EXPORT_TOKEN` if it is ever
+shared outside the intended data consumers.
 
 ---
 

@@ -351,7 +351,37 @@ uvicorn src.web.app:app --host 0.0.0.0 --port 8000
 | `/api/segments` | Segment summary JSON (peak vs average) |
 | `/api/scenarios` | Scenario-comparison JSON (incl. queue lengths) |
 | `/api/map/{name}` | Map payloads: `network`, `intersections`, `frames`, `od`, `here`, `coverage`, `summary` |
+| `/api/export/readings.csv` | Token-protected CSV of all collected corridor + intersection observations |
 | `/api/health` | Liveness + which outputs are present |
+
+### Download production readings
+
+Direct database access would couple clients to the server's SQLite volume and grant more
+access than they need. The web service instead exposes a read-only CSV download that
+combines `flow_readings` and `intersection_readings` into one stable schema. It writes the
+database cursor to a short-lived file first, so the export neither loads the whole dataset
+into RAM nor holds a read cursor open while the client downloads it.
+
+Set a dedicated token on the **web** service (not the collector), then redeploy:
+
+```bash
+openssl rand -hex 32
+# Save the output as DATA_EXPORT_TOKEN in the production web-service environment.
+```
+
+Download everything with a bearer token:
+
+```bash
+curl --fail --show-error --location \
+  -H "Authorization: Bearer $DATA_EXPORT_TOKEN" \
+  -o mumbai-traffic-readings.csv \
+  https://YOUR_HOST/api/export/readings.csv
+```
+
+The default `dataset=all` includes both measurement tables. Add
+`?dataset=corridor` or `?dataset=intersections` for a smaller export. If
+`DATA_EXPORT_TOKEN` is absent or empty, the endpoint stays disabled; tokens are accepted
+only in the `Authorization` or `X-Export-Token` header, never in the URL.
 
 ### 7.6.1 BMC/MMRDA coverage map — the stakeholder centerpiece
 

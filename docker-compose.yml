@@ -35,6 +35,9 @@ services:
       HERE_MONTHLY_CALL_LIMIT: "0"
       REGIONAL_COLLECTION_SCOPE: "mmrda"
       REGIONAL_COLLECTION_MODE: "fixed_august_2026_campaign"
+      # Dedicated read-only credential for /api/export/readings.csv. An empty
+      # value keeps the endpoint disabled.
+      DATA_EXPORT_TOKEN: "${DATA_EXPORT_TOKEN:-}"
     volumes:
       - traffic-data:/app/data/processed
       - traffic-csv:/app/data/raw/tomtom/collected

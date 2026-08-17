@@ -36,6 +36,7 @@ CLI:
 from __future__ import annotations
 
 import argparse
+import csv
 import glob
 import sqlite3
 from datetime import datetime, timezone
@@ -239,6 +240,64 @@ _INTERSECTION_COLUMNS = [
     "label", "lat", "lon", "name", "provider", "current_speed_kph",
     "free_speed_kph", "tti", "confidence", "road_closure",
 ]
+
+# Stable public shape for the combined readings export.  The two observation
+# tables intentionally have different location identifiers, so both point_id
+# and point_index are retained rather than manufacturing a lossy common key.
+CSV_EXPORT_COLUMNS = [
+    "source", "source_row_id", "run_id", "fetched_utc", "fetched_ist",
+    "segment", "label", "point_id", "point_index", "scope", "point_name",
+    "lat", "lon", "current_speed_kph", "free_speed_kph", "tti",
+    "confidence", "road_closure", "provider",
+]
+
+_FLOW_EXPORT_SQL = """
+SELECT
+    'corridor' AS source,
+    id AS source_row_id,
+    run_id,
+    fetched_utc,
+    fetched_ist,
+    segment,
+    label,
+    NULL AS point_id,
+    idx AS point_index,
+    NULL AS scope,
+    NULL AS point_name,
+    lat,
+    lon,
+    current_speed_kph,
+    free_speed_kph,
+    tti,
+    confidence,
+    road_closure,
+    provider
+FROM flow_readings
+"""
+
+_INTERSECTION_EXPORT_SQL = """
+SELECT
+    'intersection' AS source,
+    id AS source_row_id,
+    run_id,
+    fetched_utc,
+    fetched_ist,
+    segment,
+    label,
+    point_id,
+    NULL AS point_index,
+    scope,
+    name AS point_name,
+    lat,
+    lon,
+    current_speed_kph,
+    free_speed_kph,
+    tti,
+    confidence,
+    road_closure,
+    provider
+FROM intersection_readings
+"""
 
 _FAILURE_COLUMNS = [
     "occurred_utc", "campaign", "run_id", "stage", "point_id",
@@ -651,6 +710,52 @@ def load_readings_df() -> pd.DataFrame:
     finally:
         conn.close()
     return df
+
+
+def export_collected_readings_csv(
+    destination: str | Path, dataset: str = "all", batch_size: int = 1000,
+) -> int:
+    """Write collected traffic observations to one normalized CSV.
+
+    ``dataset='all'`` includes both the corridor ``flow_readings`` table and the
+    expanded ``intersection_readings`` table.  The export is cursor-backed and
+    writes in batches, so its memory use does not grow with the production DB.
+    Returns the number of data rows written (excluding the header).
+    """
+    if dataset not in {"all", "corridor", "intersections"}:
+        raise ValueError("dataset must be 'all', 'corridor', or 'intersections'")
+    if batch_size <= 0:
+        raise ValueError("batch_size must be greater than zero")
+
+    if dataset == "corridor":
+        query = _FLOW_EXPORT_SQL
+    elif dataset == "intersections":
+        query = _INTERSECTION_EXPORT_SQL
+    else:
+        query = (
+            f"SELECT * FROM ({_FLOW_EXPORT_SQL} UNION ALL "
+            f"{_INTERSECTION_EXPORT_SQL})"
+        )
+    query += (
+        " ORDER BY fetched_utc, source, run_id, point_id, point_index, "
+        "source_row_id"
+    )
+
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    conn = connect()
+    written = 0
+    try:
+        cursor = conn.execute(query)
+        with destination.open("w", encoding="utf-8", newline="") as output:
+            writer = csv.writer(output, lineterminator="\n")
+            writer.writerow(CSV_EXPORT_COLUMNS)
+            while rows := cursor.fetchmany(batch_size):
+                writer.writerows(rows)
+                written += len(rows)
+    finally:
+        conn.close()
+    return written
 
 
 def has_data() -> bool:
